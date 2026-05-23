@@ -85,11 +85,10 @@ Disabling the plugin mid-session does not stop an already-running monitor; it st
 
 `skills/synapse2/SKILL.md` is the three-tier structured documentation for the `synapse2` MCP tool. The AI reads Tier 1 for quick lookups, Tier 2 for parameter details, Tier 3 for multi-step workflows.
 
-## TEMPLATE checklist
+## Packaging checklist
 
-1. Replace every `synapse2` / `Synapse2` / `SYNAPSE_` identifier with your service name
-2. Update `userConfig` / `settings` in all three manifests to match your service's credentials
-3. Update `skills/synapse2/SKILL.md` — action table, parameters, response shapes, workflows
-4. Set `brandColor` and `defaultPrompt` in `.codex-plugin/plugin.json`
-5. Update `hooks/plugin-setup.sh` env var block to match your service's `SYNAPSE_*` vars
-6. Run `cargo xtask symlink-docs` after adding any new `CLAUDE.md`
+1. Build the release binary with `just install`.
+2. Confirm `plugins/synapse2/bin/synapse2` exists and is executable.
+3. Run `cargo test --test plugin_contract`.
+4. Verify all manifests still omit explicit `version` fields.
+5. Install through the target marketplace or local plugin path.
