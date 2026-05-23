@@ -2,14 +2,15 @@
 //!
 //! **All business logic lives here.** CLI and MCP are thin shims that call into this.
 //!
-//! `ExampleService` owns an `ExampleClient` and exposes typed methods.
+//! `SynapseService` owns an `SynapseClient` and exposes typed methods.
 //! If you need caching, retries, data transformation, or validation, do it here —
 //! never in `cli.rs` or `mcp/tools.rs`.
 
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::example::ExampleClient;
+use crate::synapse2::SynapseClient;
+use crate::{docker, scout};
 
 // Unit tests live in a sidecar file — see src/app_tests.rs for the pattern.
 #[cfg(test)]
@@ -21,8 +22,8 @@ mod tests;
 /// **Template**: rename this to `MyServiceService` (or whatever fits).
 /// Add any fields you need: caches, config, metrics, etc.
 #[derive(Clone)]
-pub struct ExampleService {
-    client: ExampleClient,
+pub struct SynapseService {
+    client: SynapseClient,
 }
 
 #[derive(Debug, Clone)]
@@ -75,8 +76,8 @@ impl std::fmt::Display for ScaffoldIntentValidationError {
 
 impl std::error::Error for ScaffoldIntentValidationError {}
 
-impl ExampleService {
-    pub fn new(client: ExampleClient) -> Self {
+impl SynapseService {
+    pub fn new(client: SynapseClient) -> Self {
         Self { client }
     }
 
@@ -95,6 +96,75 @@ impl ExampleService {
         self.client.status().await
     }
 
+    pub async fn flux_help(&self) -> Result<Value> {
+        Ok(json!({
+            "tool": "flux",
+            "actions": {
+                "docker": ["info", "images", "networks", "volumes"],
+                "container": ["list", "inspect", "logs"],
+                "host": ["status"],
+                "help": []
+            },
+            "deferred": ["compose", "destructive container lifecycle", "docker prune/rmi"],
+        }))
+    }
+
+    pub async fn flux_docker_info(&self) -> Result<Value> {
+        docker::docker_json(&["info", "--format", "{{json .}}"]).await
+    }
+
+    pub async fn flux_docker_images(&self) -> Result<Value> {
+        docker::docker_json(&["images", "--format", "{{json .}}"]).await
+    }
+
+    pub async fn flux_docker_networks(&self) -> Result<Value> {
+        docker::docker_json(&["network", "ls", "--format", "{{json .}}"]).await
+    }
+
+    pub async fn flux_docker_volumes(&self) -> Result<Value> {
+        docker::docker_json(&["volume", "ls", "--format", "{{json .}}"]).await
+    }
+
+    pub async fn flux_container_list(&self) -> Result<Value> {
+        docker::docker_json(&["container", "ls", "-a", "--format", "{{json .}}"]).await
+    }
+
+    pub async fn flux_container_inspect(&self, container_id: &str) -> Result<Value> {
+        docker::docker_json(&["container", "inspect", container_id]).await
+    }
+
+    pub async fn flux_container_logs(&self, container_id: &str, lines: u32) -> Result<Value> {
+        let lines = lines.clamp(1, 500).to_string();
+        docker::docker_json(&["container", "logs", "--tail", &lines, container_id]).await
+    }
+
+    pub async fn flux_host_status(&self, host: Option<&str>) -> Result<Value> {
+        Ok(json!({
+            "host": host.unwrap_or("local"),
+            "docker": self.flux_docker_info().await?,
+        }))
+    }
+
+    pub async fn scout_help(&self) -> Result<Value> {
+        Ok(json!({
+            "tool": "scout",
+            "actions": ["nodes", "peek", "exec", "help"],
+            "deferred": ["find", "delta", "emit", "beam", "ps", "df", "zfs", "logs"],
+        }))
+    }
+
+    pub async fn scout_nodes(&self) -> Result<Value> {
+        scout::nodes()
+    }
+
+    pub async fn scout_peek(&self, host: &str, path: &str) -> Result<Value> {
+        scout::peek(host, path)
+    }
+
+    pub async fn scout_exec(&self, host: &str, path: &str, command: &str) -> Result<Value> {
+        scout::exec(host, path, command)
+    }
+
     /// Build the response for the elicited-name demo after the MCP shim collects input.
     pub fn elicited_name_greeting(&self, outcome: ElicitedNameOutcome<'_>) -> Value {
         match outcome {
@@ -107,7 +177,7 @@ impl ExampleService {
                     })
                 } else {
                     json!({
-                        "greeting": format!("Hello, {name}! Welcome to the example MCP server."),
+                        "greeting": format!("Hello, {name}! Welcome to the synapse2 MCP server."),
                         "name": name,
                     })
                 }
@@ -144,7 +214,7 @@ impl ExampleService {
         let env_prefix = input.env_prefix.trim().to_ascii_uppercase();
 
         Ok(json!({
-            "kind": "rmcp_template_scaffold_intent",
+            "kind": "synapse2_scaffold_intent",
             "schema_version": 1,
             "server_category": category,
             "required_surfaces": required_surfaces,

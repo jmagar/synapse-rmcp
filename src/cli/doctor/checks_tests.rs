@@ -12,7 +12,7 @@
 //! scaffolding.
 
 use super::*;
-use crate::config::{ExampleConfig, McpConfig};
+use crate::config::{McpConfig, SynapseConfig};
 
 // ── check_required_var ────────────────────────────────────────────────────────
 
@@ -179,8 +179,8 @@ async fn upstream_passes_for_local_health_endpoint() {
 
 fn auth_config(host: &str) -> Config {
     Config {
-        example: ExampleConfig {
-            api_url: "https://example.test".into(),
+        synapse2: SynapseConfig {
+            api_url: "https://synapse2.test".into(),
             api_key: "secret".into(),
         },
         mcp: McpConfig {
@@ -219,5 +219,5 @@ fn auth_config_rejects_non_loopback_without_auth() {
     let check = check_auth_config(&config);
 
     assert!(!check.ok);
-    assert!(check.hint.unwrap().contains("EXAMPLE_MCP_TOKEN"));
+    assert!(check.hint.unwrap().contains("SYNAPSE_MCP_TOKEN"));
 }

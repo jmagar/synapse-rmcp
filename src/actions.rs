@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::app::ExampleService;
+use crate::app::SynapseService;
 
 // ── Validation error type ─────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ impl std::fmt::Display for ValidationError {
             ),
             Self::UnknownAction { action } => write!(
                 f,
-                "unknown example action: {action}; use action=help for documentation"
+                "unknown synapse2 action: {action}; use action=help for documentation"
             ),
         }
     }
@@ -36,9 +36,9 @@ impl std::fmt::Display for ValidationError {
 
 impl std::error::Error for ValidationError {}
 
-pub const READ_SCOPE: &str = "example:read";
-pub const WRITE_SCOPE: &str = "example:write";
-pub const DENY_SCOPE: &str = "example:__deny__";
+pub const READ_SCOPE: &str = "synapse:read";
+pub const WRITE_SCOPE: &str = "synapse:write";
+pub const DENY_SCOPE: &str = "synapse2:__deny__";
 
 /// Returns true if `token_scopes` satisfy `required`.
 /// Write scope satisfies read (write ⊇ read).
@@ -64,33 +64,38 @@ pub struct ActionSpec {
 
 pub const ACTION_SPECS: &[ActionSpec] = &[
     ActionSpec {
-        name: "greet",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-    },
-    ActionSpec {
-        name: "echo",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-    },
-    ActionSpec {
-        name: "status",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-    },
-    ActionSpec {
-        name: "elicit_name",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::McpOnly,
-    },
-    ActionSpec {
-        name: "scaffold_intent",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::McpOnly,
-    },
-    ActionSpec {
         name: "help",
         required_scope: None,
+        transport: ActionTransport::Any,
+    },
+    ActionSpec {
+        name: "docker",
+        required_scope: Some(READ_SCOPE),
+        transport: ActionTransport::Any,
+    },
+    ActionSpec {
+        name: "container",
+        required_scope: Some(READ_SCOPE),
+        transport: ActionTransport::Any,
+    },
+    ActionSpec {
+        name: "host",
+        required_scope: Some(READ_SCOPE),
+        transport: ActionTransport::Any,
+    },
+    ActionSpec {
+        name: "nodes",
+        required_scope: Some(READ_SCOPE),
+        transport: ActionTransport::Any,
+    },
+    ActionSpec {
+        name: "peek",
+        required_scope: Some(READ_SCOPE),
+        transport: ActionTransport::Any,
+    },
+    ActionSpec {
+        name: "exec",
+        required_scope: Some(READ_SCOPE),
         transport: ActionTransport::Any,
     },
 ];
@@ -136,68 +141,89 @@ fn action_spec(action: &str) -> Option<&'static ActionSpec> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExampleAction {
-    Greet { name: Option<String> },
-    Echo { message: String },
-    Status,
-    Help,
-    ElicitName,
-    ScaffoldIntent,
+pub enum SynapseAction {
+    FluxHelp,
+    FluxDocker {
+        subaction: String,
+    },
+    FluxContainer {
+        subaction: String,
+        container_id: Option<String>,
+        lines: Option<u32>,
+    },
+    FluxHost {
+        subaction: String,
+        host: Option<String>,
+    },
+    ScoutHelp,
+    ScoutNodes,
+    ScoutPeek {
+        host: String,
+        path: String,
+    },
+    ScoutExec {
+        host: String,
+        path: String,
+        command: String,
+    },
 }
 
-impl ExampleAction {
+impl SynapseAction {
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Greet { .. } => "greet",
-            Self::Echo { .. } => "echo",
-            Self::Status => "status",
-            Self::Help => "help",
-            Self::ElicitName => "elicit_name",
-            Self::ScaffoldIntent => "scaffold_intent",
+            Self::FluxHelp | Self::ScoutHelp => "help",
+            Self::FluxDocker { .. } => "docker",
+            Self::FluxContainer { .. } => "container",
+            Self::FluxHost { .. } => "host",
+            Self::ScoutNodes => "nodes",
+            Self::ScoutPeek { .. } => "peek",
+            Self::ScoutExec { .. } => "exec",
         }
     }
 
-    pub fn from_mcp_args(args: &Value) -> Result<Self> {
+    pub fn from_flux_args(args: &Value) -> Result<Self> {
         let action = args
             .get("action")
             .and_then(Value::as_str)
             .ok_or(ValidationError::MissingAction)?;
-        Self::from_params(action, args)
-    }
-
-    pub fn from_rest(action: &str, params: &Value) -> Result<Self> {
-        if action.is_empty() {
-            return Err(ValidationError::MissingAction.into());
-        }
-        if action_spec(action)
-            .map(|spec| spec.transport == ActionTransport::McpOnly)
-            .unwrap_or(false)
-        {
-            return Err(ValidationError::NotAvailableOverRest {
-                action: action.to_owned(),
-            }
-            .into());
-        }
-        Self::from_params(action, params)
-    }
-
-    fn from_params(action: &str, params: &Value) -> Result<Self> {
         match action {
-            "greet" => Ok(Self::Greet {
-                name: optional_string_param(params, "name")?,
+            "help" => Ok(Self::FluxHelp),
+            "docker" => Ok(Self::FluxDocker {
+                subaction: required_string_param(args, "subaction")?,
             }),
-            "echo" => {
-                let message = optional_string_param(params, "message")?
-                    .filter(|m| !m.is_empty())
-                    .ok_or_else(|| ValidationError::MissingField {
-                        field: "message".into(),
-                    })?;
-                Ok(Self::Echo { message })
+            "container" => Ok(Self::FluxContainer {
+                subaction: required_string_param(args, "subaction")?,
+                container_id: optional_string_param(args, "container_id")?,
+                lines: optional_u32_param(args, "lines")?,
+            }),
+            "host" => Ok(Self::FluxHost {
+                subaction: required_string_param(args, "subaction")?,
+                host: optional_string_param(args, "host")?,
+            }),
+            other => Err(ValidationError::UnknownAction {
+                action: other.to_owned(),
             }
-            "status" => Ok(Self::Status),
-            "help" => Ok(Self::Help),
-            "elicit_name" => Ok(Self::ElicitName),
-            "scaffold_intent" => Ok(Self::ScaffoldIntent),
+            .into()),
+        }
+    }
+
+    pub fn from_scout_args(args: &Value) -> Result<Self> {
+        let action = args
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or(ValidationError::MissingAction)?;
+        match action {
+            "help" => Ok(Self::ScoutHelp),
+            "nodes" => Ok(Self::ScoutNodes),
+            "peek" => Ok(Self::ScoutPeek {
+                host: required_string_param(args, "host")?,
+                path: required_string_param(args, "path")?,
+            }),
+            "exec" => Ok(Self::ScoutExec {
+                host: required_string_param(args, "host")?,
+                path: required_string_param(args, "path")?,
+                command: required_string_param(args, "command")?,
+            }),
             other => Err(ValidationError::UnknownAction {
                 action: other.to_owned(),
             }
@@ -207,20 +233,68 @@ impl ExampleAction {
 }
 
 pub async fn execute_service_action(
-    service: &ExampleService,
-    action: &ExampleAction,
+    service: &SynapseService,
+    action: &SynapseAction,
 ) -> Result<Value> {
     match action {
-        ExampleAction::Greet { name } => service.greet(name.as_deref()).await,
-        ExampleAction::Echo { message } => service.echo(message).await,
-        ExampleAction::Status => service.status().await,
-        ExampleAction::Help => Ok(rest_help()),
-        ExampleAction::ElicitName => Err(anyhow!(
-            "action=elicit_name is only available over MCP because it requires a peer"
-        )),
-        ExampleAction::ScaffoldIntent => Err(anyhow!(
-            "action=scaffold_intent is only available over MCP because it requires elicitation"
-        )),
+        SynapseAction::FluxHelp => service.flux_help().await,
+        SynapseAction::FluxDocker { subaction } => match subaction.as_str() {
+            "info" => service.flux_docker_info().await,
+            "images" => service.flux_docker_images().await,
+            "networks" => service.flux_docker_networks().await,
+            "volumes" => service.flux_docker_volumes().await,
+            other => Err(ValidationError::UnknownAction {
+                action: format!("docker:{other}"),
+            }
+            .into()),
+        },
+        SynapseAction::FluxContainer {
+            subaction,
+            container_id,
+            lines,
+        } => match subaction.as_str() {
+            "list" => service.flux_container_list().await,
+            "inspect" => {
+                service
+                    .flux_container_inspect(container_id.as_deref().ok_or_else(|| {
+                        ValidationError::MissingField {
+                            field: "container_id".into(),
+                        }
+                    })?)
+                    .await
+            }
+            "logs" => {
+                service
+                    .flux_container_logs(
+                        container_id
+                            .as_deref()
+                            .ok_or_else(|| ValidationError::MissingField {
+                                field: "container_id".into(),
+                            })?,
+                        lines.unwrap_or(50),
+                    )
+                    .await
+            }
+            other => Err(ValidationError::UnknownAction {
+                action: format!("container:{other}"),
+            }
+            .into()),
+        },
+        SynapseAction::FluxHost { subaction, host } => match subaction.as_str() {
+            "status" => service.flux_host_status(host.as_deref()).await,
+            other => Err(ValidationError::UnknownAction {
+                action: format!("host:{other}"),
+            }
+            .into()),
+        },
+        SynapseAction::ScoutHelp => service.scout_help().await,
+        SynapseAction::ScoutNodes => service.scout_nodes().await,
+        SynapseAction::ScoutPeek { host, path } => service.scout_peek(host, path).await,
+        SynapseAction::ScoutExec {
+            host,
+            path,
+            command,
+        } => service.scout_exec(host, path, command).await,
     }
 }
 
@@ -228,13 +302,18 @@ pub fn rest_help() -> Value {
     json!({
         "actions": rest_action_names(),
         "mcp_only_actions": mcp_only_action_names(),
-        "usage": "POST /v1/example with {\"action\": \"<action>\", \"params\": {...}}",
+        "usage": "Use MCP tools `flux` and `scout`, or CLI commands `synapse2 flux ...` and `synapse2 scout ...`.",
         "examples": {
-            "greet":  {"action": "greet",  "params": {"name": "Alice"}},
-            "echo":   {"action": "echo",   "params": {"message": "Hello!"}},
-            "status": {"action": "status", "params": {}},
+            "flux":  {"action": "docker", "subaction": "info"},
+            "scout": {"action": "nodes"},
         }
     })
+}
+
+fn required_string_param(params: &Value, name: &str) -> Result<String> {
+    optional_string_param(params, name)?
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ValidationError::MissingField { field: name.into() }.into())
 }
 
 fn optional_string_param(params: &Value, name: &str) -> Result<Option<String>> {
@@ -243,6 +322,17 @@ fn optional_string_param(params: &Value, name: &str) -> Result<Option<String>> {
         Some(value) => value
             .as_str()
             .map(|s| Some(s.to_owned()))
+            .ok_or_else(|| ValidationError::WrongType { field: name.into() }.into()),
+    }
+}
+
+fn optional_u32_param(params: &Value, name: &str) -> Result<Option<u32>> {
+    match params.get(name) {
+        None => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .and_then(|v| u32::try_from(v).ok())
+            .map(Some)
             .ok_or_else(|| ValidationError::WrongType { field: name.into() }.into()),
     }
 }

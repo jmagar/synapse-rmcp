@@ -1,6 +1,6 @@
 ---
-name: example
-description: TEMPLATE SKILL — Replace this description with your service's trigger phrases. This skill should be used when the user asks to interact with the Example service via MCP. Trigger phrases should describe what your service does, e.g. "query my service", "check example status", "call example API". The description is what the AI reads to decide when to invoke this skill — be specific and use the exact phrases your users will say.
+name: synapse2
+description: TEMPLATE SKILL — Replace this description with your service's trigger phrases. This skill should be used when the user asks to interact with the Synapse2 service via MCP. Trigger phrases should describe what your service does, e.g. "query my service", "check synapse2 status", "call synapse2 API". The description is what the AI reads to decide when to invoke this skill — be specific and use the exact phrases your users will say.
 ---
 
 <!-- ==========================================================================
@@ -9,8 +9,8 @@ description: TEMPLATE SKILL — Replace this description with your service's tri
 
      To adapt for your service:
        1. Update the YAML frontmatter: name, description
-       2. Replace "example" with your tool name throughout
-       3. Replace example actions (greet, echo, status, help) with your actions
+       2. Replace "synapse2" with your tool name throughout
+       3. Replace synapse2 actions (greet, echo, status, help) with your actions
        4. Update the Action Reference to document your actual response shapes
        5. Update the HTTP Fallback section with your service's curl examples
 
@@ -23,10 +23,10 @@ description: TEMPLATE SKILL — Replace this description with your service's tri
                              The AI reads this for complex multi-step tasks.
      ========================================================================== -->
 
-# Example Skill
+# Synapse2 Skill
 
 <!-- TEMPLATE: Replace this paragraph with your service description -->
-Rust-based MCP server template. Exposes a single `example` MCP tool with action-based dispatch for interacting with an example remote service.
+Rust-based MCP server template. Exposes a single `synapse2` MCP tool with action-based dispatch for interacting with an synapse2 remote service.
 
 ## Tool
 
@@ -71,7 +71,7 @@ mcp__example__example(action="greet", name="Alice")
 {
   "greeting": "Hello, Alice!",
   "target": "Alice",
-  "server": "https://api.example.com/v1"
+  "server": "https://api.synapse2.com/v1"
 }
 ```
 
@@ -108,7 +108,7 @@ mcp__example__example(action="status")
 ```json
 {
   "status": "ok",
-  "api_url": "https://api.example.com/v1",
+  "api_url": "https://api.synapse2.com/v1",
   "note": "Replace with real health endpoint data"
 }
 ```
@@ -130,7 +130,7 @@ mcp__example__example(action="elicit_name")
 **Response shape:**
 ```json
 {
-  "greeting": "Hello, Alice! Welcome to the example MCP server.",
+  "greeting": "Hello, Alice! Welcome to the synapse2 MCP server.",
   "name": "Alice"
 }
 ```
@@ -223,25 +223,25 @@ It is never substituted into skill content — only the env var path above is va
 curl -s "$CLAUDE_PLUGIN_OPTION_SERVER_URL/health"
 ```
 
-### Call the example tool
+### Call the synapse2 tool
 
 ```bash
 # Greet action
 curl -s -X POST "$CLAUDE_PLUGIN_OPTION_SERVER_URL/mcp" \
   -H "Authorization: Bearer $CLAUDE_PLUGIN_OPTION_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"example","arguments":{"action":"greet","name":"Alice"}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"synapse2","arguments":{"action":"greet","name":"Alice"}}}'
 
 # Status action
 curl -s -X POST "$CLAUDE_PLUGIN_OPTION_SERVER_URL/mcp" \
   -H "Authorization: Bearer $CLAUDE_PLUGIN_OPTION_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"example","arguments":{"action":"status"}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"synapse2","arguments":{"action":"status"}}}'
 ```
 
 ---
 
-## Example Workflows
+## Synapse2 Workflows
 
 <!-- TEMPLATE: Replace with workflows that make sense for your service.
      Good workflows show multi-step sequences that demonstrate real value. -->

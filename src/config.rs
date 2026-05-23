@@ -2,34 +2,34 @@
 //!
 //! Values are loaded in priority order:
 //!   1. `config.toml` (checked in, defaults only — no secrets)
-//!   2. Environment variables (`EXAMPLE_*`, `EXAMPLE_MCP_*`)
+//!   2. Environment variables (`SYNAPSE_*`, `SYNAPSE_MCP_*`)
 //!
-//! **Template**: rename `ExampleConfig` to match your service. Adjust env prefixes
+//! **Template**: rename `SynapseConfig` to match your service. Adjust env prefixes
 //! throughout. Add any domain-specific config fields you need.
 
 use serde::{Deserialize, Serialize};
 
 /// TEMPLATE: Replace with your service name (e.g. ".unraid", ".gotify").
-const SERVICE_HOME_DIRNAME: &str = ".example";
+const SERVICE_HOME_DIRNAME: &str = ".synapse2";
 
 /// Top-level config (maps to `config.toml` sections).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
     pub mcp: McpConfig,
-    pub example: ExampleConfig,
+    pub synapse2: SynapseConfig,
 }
 
-/// Config for the example remote service (the thing this MCP server wraps).
+/// Config for the synapse2 remote service (the thing this MCP server wraps).
 ///
 /// **Template**: replace this with config for your actual upstream service.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct ExampleConfig {
-    /// Full endpoint URL of the remote service (EXAMPLE_API_URL).
-    /// Example: `https://api.example.com/v1`
+pub struct SynapseConfig {
+    /// Full endpoint URL of the remote service (SYNAPSE_API_URL).
+    /// Example: `https://api.synapse2.com/v1`
     pub api_url: String,
-    /// API key or bearer token (EXAMPLE_API_KEY).
+    /// API key or bearer token (SYNAPSE_API_KEY).
     pub api_key: String,
 }
 
@@ -37,23 +37,23 @@ pub struct ExampleConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct McpConfig {
-    /// Bind host (EXAMPLE_MCP_HOST). Default: `127.0.0.1` (loopback).
+    /// Bind host (SYNAPSE_MCP_HOST). Default: `127.0.0.1` (loopback).
     /// Set to `0.0.0.0` to listen on all interfaces — requires auth configured.
     #[serde(default = "default_mcp_host")]
     pub host: String,
-    /// Bind port (EXAMPLE_MCP_PORT). Default: `40060`.
+    /// Bind port (SYNAPSE_MCP_PORT). Default: `40060`.
     #[serde(default = "default_mcp_port")]
     pub port: u16,
-    /// MCP server name advertised to clients (EXAMPLE_MCP_SERVER_NAME).
+    /// MCP server name advertised to clients (SYNAPSE_MCP_SERVER_NAME).
     #[serde(default = "default_server_name")]
     pub server_name: String,
-    /// Disable auth entirely — only safe when bound to loopback (EXAMPLE_MCP_NO_AUTH).
+    /// Disable auth entirely — only safe when bound to loopback (SYNAPSE_MCP_NO_AUTH).
     pub no_auth: bool,
     /// Allow unauthenticated access on non-loopback when behind a trusted reverse proxy
-    /// that enforces its own auth (EXAMPLE_NOAUTH). Loaded here so it participates in
+    /// that enforces its own auth (SYNAPSE_NOAUTH). Loaded here so it participates in
     /// typed config rather than being a raw env read at call sites.
     pub trusted_gateway: bool,
-    /// Static bearer token for simple auth (EXAMPLE_MCP_TOKEN).
+    /// Static bearer token for simple auth (SYNAPSE_MCP_TOKEN).
     pub api_token: Option<String>,
     /// Additional allowed Host header values (comma-separated in env).
     pub allowed_hosts: Vec<String>,
@@ -119,14 +119,14 @@ pub enum AuthMode {
 
 fn default_mcp_host() -> String {
     // Default to loopback for safety. Operators who need external access must
-    // explicitly set EXAMPLE_MCP_HOST=0.0.0.0 (and configure auth).
+    // explicitly set SYNAPSE_MCP_HOST=0.0.0.0 (and configure auth).
     "127.0.0.1".into()
 }
 fn default_mcp_port() -> u16 {
     40060
 }
 fn default_server_name() -> String {
-    "example-mcp".into()
+    "synapse2".into()
 }
 fn default_auth_sqlite_path() -> String {
     "/data/auth.db".into()
@@ -197,9 +197,9 @@ impl Default for AuthConfig {
 /// | Environment   | Path                                |
 /// |---------------|-------------------------------------|
 /// | Container     | `/data` (bind-mounted from host)     |
-/// | Bare-metal    | `~/.example` (user home dir)        |
+/// | Bare-metal    | `~/.synapse2` (user home dir)        |
 ///
-/// TEMPLATE: Replace `.example` with your service name (e.g. `.unraid`, `.gotify`).
+/// TEMPLATE: Replace `.synapse2` with your service name (e.g. `.unraid`, `.gotify`).
 ///           The name should match the docker-compose.yml volume mount source.
 pub fn default_data_dir() -> anyhow::Result<std::path::PathBuf> {
     // Running inside a Docker container — /data is always the mount point.
@@ -253,39 +253,39 @@ impl Config {
             }
         }
 
-        // Env overrides — EXAMPLE_MCP_* for server config, EXAMPLE_API_* for upstream
-        env_str("EXAMPLE_MCP_HOST", &mut config.mcp.host);
-        env_parse("EXAMPLE_MCP_PORT", &mut config.mcp.port)?;
-        env_str("EXAMPLE_MCP_SERVER_NAME", &mut config.mcp.server_name);
-        env_bool("EXAMPLE_MCP_NO_AUTH", &mut config.mcp.no_auth)?;
-        env_bool("EXAMPLE_NOAUTH", &mut config.mcp.trusted_gateway)?;
-        env_opt_str("EXAMPLE_MCP_TOKEN", &mut config.mcp.api_token);
-        env_list("EXAMPLE_MCP_ALLOWED_HOSTS", &mut config.mcp.allowed_hosts);
+        // Env overrides — SYNAPSE_MCP_* for server config, SYNAPSE_API_* for upstream
+        env_str("SYNAPSE_MCP_HOST", &mut config.mcp.host);
+        env_parse("SYNAPSE_MCP_PORT", &mut config.mcp.port)?;
+        env_str("SYNAPSE_MCP_SERVER_NAME", &mut config.mcp.server_name);
+        env_bool("SYNAPSE_MCP_NO_AUTH", &mut config.mcp.no_auth)?;
+        env_bool("SYNAPSE_NOAUTH", &mut config.mcp.trusted_gateway)?;
+        env_opt_str("SYNAPSE_MCP_TOKEN", &mut config.mcp.api_token);
+        env_list("SYNAPSE_MCP_ALLOWED_HOSTS", &mut config.mcp.allowed_hosts);
         env_list(
-            "EXAMPLE_MCP_ALLOWED_ORIGINS",
+            "SYNAPSE_MCP_ALLOWED_ORIGINS",
             &mut config.mcp.allowed_origins,
         );
-        env_opt_str("EXAMPLE_MCP_PUBLIC_URL", &mut config.mcp.auth.public_url);
+        env_opt_str("SYNAPSE_MCP_PUBLIC_URL", &mut config.mcp.auth.public_url);
         env_str(
-            "EXAMPLE_MCP_AUTH_ADMIN_EMAIL",
+            "SYNAPSE_MCP_AUTH_ADMIN_EMAIL",
             &mut config.mcp.auth.admin_email,
         );
         env_opt_str(
-            "EXAMPLE_MCP_GOOGLE_CLIENT_ID",
+            "SYNAPSE_MCP_GOOGLE_CLIENT_ID",
             &mut config.mcp.auth.google_client_id,
         );
         env_opt_str(
-            "EXAMPLE_MCP_GOOGLE_CLIENT_SECRET",
+            "SYNAPSE_MCP_GOOGLE_CLIENT_SECRET",
             &mut config.mcp.auth.google_client_secret,
         );
-        if let Ok(v) = std::env::var("EXAMPLE_MCP_AUTH_MODE") {
+        if let Ok(v) = std::env::var("SYNAPSE_MCP_AUTH_MODE") {
             if !v.is_empty() {
                 config.mcp.auth.mode = match v.to_lowercase().as_str() {
                     "oauth" => AuthMode::OAuth,
                     "bearer" => AuthMode::Bearer,
                     other => {
                         return Err(anyhow::anyhow!(
-                            "invalid EXAMPLE_MCP_AUTH_MODE {:?}: must be \"bearer\" or \"oauth\"",
+                            "invalid SYNAPSE_MCP_AUTH_MODE {:?}: must be \"bearer\" or \"oauth\"",
                             other
                         ));
                     }
@@ -294,8 +294,8 @@ impl Config {
         }
 
         // Upstream service config
-        env_str("EXAMPLE_API_URL", &mut config.example.api_url);
-        env_str("EXAMPLE_API_KEY", &mut config.example.api_key);
+        env_str("SYNAPSE_API_URL", &mut config.synapse2.api_url);
+        env_str("SYNAPSE_API_KEY", &mut config.synapse2.api_key);
 
         Ok(config)
     }

@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "example": {
+    "synapse2": {
       "type": "http",
       "url": "${user_config.server_url}/mcp",
       "headers": {

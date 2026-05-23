@@ -9,7 +9,7 @@ Use this skill to turn scaffold intent JSON into a concrete, user-approved plan 
 
 Canonical spec: `docs/specs/scaffold-intent-handoff.md`.
 Machine-readable contract: `docs/contracts/scaffold-intent.schema.json`.
-Example payloads: `docs/contracts/examples/scaffold-intent-upstream-client.json` and `docs/contracts/examples/scaffold-intent-application-platform.json`.
+Synapse2 payloads: `docs/contracts/examples/scaffold-intent-upstream-client.json` and `docs/contracts/examples/scaffold-intent-application-platform.json`.
 
 ## When to use this skill
 
@@ -225,13 +225,13 @@ Use this approval wording:
 ### 3. Rename Map
 | Template identifier | New identifier |
 |---|---|
-| `example` | `<binary_name>` |
+| `synapse2` | `<binary_name>` |
 | `rmcp-template` | `<crate_name>` |
 | `ExampleService` | `<ServiceName>Service` |
-| `EXAMPLE_*` | `<ENV_PREFIX>_*` |
-| `example:read` | `<service_name>:read` |
+| `SYNAPSE_*` | `<ENV_PREFIX>_*` |
+| `synapse2:read` | `<service_name>:read` |
 
-Keep `scaffold_intent` MCP-only in scaffolded projects and rename its scope from `example:read` to `<service_name>:read`.
+Keep `scaffold_intent` MCP-only in scaffolded projects and rename its scope from `synapse2:read` to `<service_name>:read`.
 
 ### 4. Runtime / Plugins / Deployment
 - Host/port: `<host>:<port>`

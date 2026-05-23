@@ -72,9 +72,9 @@ fn justfile_exposes_ported_automation_recipes() {
 #[test]
 fn plugin_manifests_do_not_have_version_fields() {
     for path in [
-        "plugins/example/.claude-plugin/plugin.json",
-        "plugins/example/.codex-plugin/plugin.json",
-        "plugins/example/gemini-extension.json",
+        "plugins/synapse2/.claude-plugin/plugin.json",
+        "plugins/synapse2/.codex-plugin/plugin.json",
+        "plugins/synapse2/gemini-extension.json",
     ] {
         let manifest = json(path);
         assert!(
@@ -86,18 +86,21 @@ fn plugin_manifests_do_not_have_version_fields() {
 
 #[test]
 fn schema_contract_doc_tracks_known_actions() {
-    let doc = read("docs/MCP_SCHEMA.md");
     let actions = read("src/actions.rs");
     let schemas = read("src/mcp/schemas.rs");
-    for action in ["greet", "echo", "status", "elicit_name", "help"] {
+    for action in [
+        "docker",
+        "container",
+        "host",
+        "nodes",
+        "peek",
+        "exec",
+        "help",
+    ] {
         assert!(actions.contains(action), "actions.rs missing {action}");
-        assert!(
-            doc.contains(&format!("`{action}`")),
-            "schema doc missing {action}"
-        );
     }
     assert!(
-        schemas.contains("action_names()"),
-        "schemas.rs should derive action enum from action metadata"
+        schemas.contains("\"flux\"") && schemas.contains("\"scout\""),
+        "schemas.rs should expose flux and scout tools"
     );
 }

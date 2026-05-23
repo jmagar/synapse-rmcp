@@ -1,4 +1,4 @@
-//! CLI — thin shim that parses args, calls `ExampleService`, formats output.
+//! CLI — thin shim that parses args, calls `SynapseService`, formats output.
 //!
 //! The CLI uses the same service layer as the MCP server. No business logic lives here.
 //!
@@ -7,14 +7,14 @@
 //! # Usage
 //!
 //! ```text
-//! example greet --name Alice
-//! example echo --message "Hello!"
-//! example status
-//! example doctor [--json]
+//! synapse2 greet --name Alice
+//! synapse2 echo --message "Hello!"
+//! synapse2 status
+//! synapse2 doctor [--json]
 //! ```
 
 use crate::{
-    actions::rest_help, app::ExampleService, config::ExampleConfig, example::ExampleClient,
+    actions::rest_help, app::SynapseService, config::SynapseConfig, synapse2::SynapseClient,
 };
 use anyhow::{anyhow, Result};
 
@@ -27,29 +27,34 @@ pub mod watch;
 pub use setup::{run_setup, SetupCommand};
 
 pub const USAGE: &str = "Usage:
-  example [serve]          Start MCP HTTP server (default)
-  example mcp              Start MCP stdio transport
+  synapse2 [serve]          Start MCP HTTP server (default)
+  synapse2 mcp              Start MCP stdio transport
 
-  example greet [--name NAME]       Greet NAME (or the world)
-  example echo --message MSG        Echo MSG back
-  example status                    Show server status
-  example help                      Show JSON action reference
-  example doctor [--json]           Run environment pre-flight checks
-  example watch [--url URL] [--interval N]  Poll /health and emit on state change
-  example setup check               Check plugin setup without mutating appdata
-  example setup repair              Create missing appdata/env setup files
-  example setup plugin-hook [--no-repair]  Plugin hook JSON contract
+  synapse2 flux docker info|images|networks|volumes
+  synapse2 flux container list
+  synapse2 flux container inspect --container-id ID
+  synapse2 flux container logs --container-id ID [--lines N]
+  synapse2 flux host status [--host HOST]
+  synapse2 scout nodes
+  synapse2 scout peek --host HOST --path PATH
+  synapse2 scout exec --host HOST --path PATH --command CMD
+  synapse2 help                      Show JSON action reference
+  synapse2 doctor [--json]           Run environment pre-flight checks
+  synapse2 watch [--url URL] [--interval N]  Poll /health and emit on state change
+  synapse2 setup check               Check plugin setup without mutating appdata
+  synapse2 setup repair              Create missing appdata/env setup files
+  synapse2 setup plugin-hook [--no-repair]  Plugin hook JSON contract
 
-  example --help                    Show this help
-  example --version                 Show version
+  synapse2 --help                    Show this help
+  synapse2 --version                 Show version
 
 Environment:
-  EXAMPLE_API_URL          Upstream service URL
-  EXAMPLE_API_KEY          Upstream service API key
-  EXAMPLE_MCP_HOST         Bind host (default 127.0.0.1)
-  EXAMPLE_MCP_PORT         Bind port (default 40060)
-  EXAMPLE_MCP_NO_AUTH      Disable auth (loopback only)
-  EXAMPLE_MCP_TOKEN        Static bearer token
+  SYNAPSE_API_URL          Upstream service URL
+  SYNAPSE_API_KEY          Upstream service API key
+  SYNAPSE_MCP_HOST         Bind host (default 127.0.0.1)
+  SYNAPSE_MCP_PORT         Bind port (default 40060)
+  SYNAPSE_MCP_NO_AUTH      Disable auth (loopback only)
+  SYNAPSE_MCP_TOKEN        Static bearer token
   RUST_LOG                 Log filter (e.g. info,rmcp=warn)";
 
 pub fn usage() -> &'static str {
@@ -58,13 +63,28 @@ pub fn usage() -> &'static str {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
-    Greet {
-        name: Option<String>,
+    FluxDocker {
+        subaction: String,
     },
-    Echo {
-        message: String,
+    FluxContainer {
+        subaction: String,
+        container_id: Option<String>,
+        lines: Option<u32>,
     },
-    Status,
+    FluxHost {
+        subaction: String,
+        host: Option<String>,
+    },
+    ScoutNodes,
+    ScoutPeek {
+        host: String,
+        path: String,
+    },
+    ScoutExec {
+        host: String,
+        path: String,
+        command: String,
+    },
     Help,
     /// Pre-flight environment validation (§48).
     ///
@@ -79,7 +99,7 @@ pub enum Command {
     /// Designed to be run as a plugin monitor — stdout is the event stream,
     /// stderr is debug output. Exits only on CTRL+C.
     Watch {
-        /// Base URL of the MCP server (default: http://localhost:{EXAMPLE_MCP_PORT}).
+        /// Base URL of the MCP server (default: http://localhost:{SYNAPSE_MCP_PORT}).
         url: Option<String>,
         /// Poll interval in seconds (default: 10).
         interval: u64,
@@ -112,27 +132,15 @@ where
     let command = match args.as_slice() {
         [] => None,
         [subcommand, rest @ ..] => match subcommand.as_str() {
-            "greet" => {
-                let name = parse_optional_value_flag(rest, "greet", "--name")?;
-                Some(Command::Greet { name })
-            }
-            "echo" => {
-                let message = parse_required_value_flag(rest, "echo", "--message")?
-                    .filter(|m| !m.is_empty())
-                    .ok_or_else(|| anyhow!("echo requires non-empty --message"))?;
-                Some(Command::Echo { message })
-            }
-            "status" => {
-                reject_args(rest, "status")?;
-                Some(Command::Status)
-            }
+            "flux" => Some(parse_flux(rest)?),
+            "scout" => Some(parse_scout(rest)?),
             "help" => {
                 reject_args(rest, "help")?;
                 Some(Command::Help)
             }
             // §48: doctor is always parsed here, dispatched via run_cli in main.rs.
             // TEMPLATE: Keep this arm. It routes to doctor::run_doctor() which needs
-            //           the full Config (not just ExampleConfig), so main.rs handles it.
+            //           the full Config (not just SynapseConfig), so main.rs handles it.
             "doctor" => {
                 let json = parse_bool_flag(rest, "doctor", "--json")?;
                 Some(Command::Doctor { json })
@@ -177,16 +185,58 @@ where
 ///
 /// # TEMPLATE
 /// - `Doctor` is handled specially in `main.rs::run_cli` (needs full `Config`).
-/// - All other commands get only `ExampleConfig`; keep it that way.
+/// - All other commands get only `SynapseConfig`; keep it that way.
 /// - Add `--json` support to each new command by forwarding a `json` flag.
-pub async fn run(cmd: Command, cfg: &ExampleConfig) -> Result<()> {
-    let client = ExampleClient::new(cfg)?;
-    let service = ExampleService::new(client);
+pub async fn run(cmd: Command, cfg: &SynapseConfig) -> Result<()> {
+    let client = SynapseClient::new(cfg)?;
+    let service = SynapseService::new(client);
 
     let result = match &cmd {
-        Command::Greet { name } => service.greet(name.as_deref()).await?,
-        Command::Echo { message } => service.echo(message).await?,
-        Command::Status => service.status().await?,
+        Command::FluxDocker { subaction } => match subaction.as_str() {
+            "info" => service.flux_docker_info().await?,
+            "images" => service.flux_docker_images().await?,
+            "networks" => service.flux_docker_networks().await?,
+            "volumes" => service.flux_docker_volumes().await?,
+            other => return Err(anyhow!("unknown flux docker subaction `{other}`")),
+        },
+        Command::FluxContainer {
+            subaction,
+            container_id,
+            lines,
+        } => match subaction.as_str() {
+            "list" => service.flux_container_list().await?,
+            "inspect" => {
+                service
+                    .flux_container_inspect(
+                        container_id
+                            .as_deref()
+                            .ok_or_else(|| anyhow!("container inspect requires --container-id"))?,
+                    )
+                    .await?
+            }
+            "logs" => {
+                service
+                    .flux_container_logs(
+                        container_id
+                            .as_deref()
+                            .ok_or_else(|| anyhow!("container logs requires --container-id"))?,
+                        lines.unwrap_or(50),
+                    )
+                    .await?
+            }
+            other => return Err(anyhow!("unknown flux container subaction `{other}`")),
+        },
+        Command::FluxHost { subaction, host } => match subaction.as_str() {
+            "status" => service.flux_host_status(host.as_deref()).await?,
+            other => return Err(anyhow!("unknown flux host subaction `{other}`")),
+        },
+        Command::ScoutNodes => service.scout_nodes().await?,
+        Command::ScoutPeek { host, path } => service.scout_peek(host, path).await?,
+        Command::ScoutExec {
+            host,
+            path,
+            command,
+        } => service.scout_exec(host, path, command).await?,
         Command::Help => rest_help(),
         // Doctor, Watch, and Setup are never dispatched via this function — main.rs
         // handles them directly because they need config.mcp fields.
@@ -207,6 +257,76 @@ fn reject_args(args: &[String], command: &str) -> Result<()> {
     } else {
         Err(anyhow!("{command} does not accept argument `{}`", args[0]))
     }
+}
+
+fn parse_flux(args: &[String]) -> Result<Command> {
+    match args {
+        [group, subaction] if group == "docker" => Ok(Command::FluxDocker {
+            subaction: subaction.clone(),
+        }),
+        [group, subaction, rest @ ..] if group == "container" => {
+            let container_id = parse_optional_named_value(rest, "--container-id")?;
+            let lines = parse_optional_named_value(rest, "--lines")?
+                .map(|value| value.parse())
+                .transpose()
+                .map_err(|_| anyhow!("--lines must be an integer"))?;
+            Ok(Command::FluxContainer {
+                subaction: subaction.clone(),
+                container_id,
+                lines,
+            })
+        }
+        [group, subaction, rest @ ..] if group == "host" => Ok(Command::FluxHost {
+            subaction: subaction.clone(),
+            host: parse_optional_value_flag(rest, "flux host", "--host")?,
+        }),
+        _ => Err(anyhow!("unknown flux command")),
+    }
+}
+
+fn parse_scout(args: &[String]) -> Result<Command> {
+    match args {
+        [action] if action == "nodes" => Ok(Command::ScoutNodes),
+        [action, rest @ ..] if action == "peek" => Ok(Command::ScoutPeek {
+            host: parse_required_named_value(rest, "--host")?,
+            path: parse_required_named_value(rest, "--path")?,
+        }),
+        [action, rest @ ..] if action == "exec" => Ok(Command::ScoutExec {
+            host: parse_required_named_value(rest, "--host")?,
+            path: parse_required_named_value(rest, "--path")?,
+            command: parse_required_named_value(rest, "--command")?,
+        }),
+        _ => Err(anyhow!("unknown scout command")),
+    }
+}
+
+fn parse_required_named_value(args: &[String], flag: &str) -> Result<String> {
+    parse_optional_named_value(args, flag)?.ok_or_else(|| anyhow!("missing required {flag}"))
+}
+
+fn parse_optional_named_value(args: &[String], flag: &str) -> Result<Option<String>> {
+    let mut value = None;
+    let mut index = 0;
+    while index < args.len() {
+        let found_flag = args[index].as_str();
+        if !found_flag.starts_with("--") {
+            return Err(anyhow!("unexpected argument `{found_flag}`"));
+        }
+        let Some(found_value) = args.get(index + 1) else {
+            return Err(anyhow!("missing value after {found_flag}"));
+        };
+        if found_value.starts_with("--") {
+            return Err(anyhow!("missing value after {found_flag}"));
+        }
+        if found_flag == flag {
+            if value.is_some() {
+                return Err(anyhow!("duplicate {flag}"));
+            }
+            value = Some(found_value.clone());
+        }
+        index += 2;
+    }
+    Ok(value)
 }
 
 fn parse_bool_flag(args: &[String], command: &str, flag: &str) -> Result<bool> {
@@ -247,13 +367,6 @@ fn parse_optional_value_flag(args: &[String], command: &str, flag: &str) -> Resu
             }
         }
         [unexpected, ..] => Err(anyhow!("{command} does not accept argument `{unexpected}`")),
-    }
-}
-
-fn parse_required_value_flag(args: &[String], command: &str, flag: &str) -> Result<Option<String>> {
-    match parse_optional_value_flag(args, command, flag)? {
-        Some(value) => Ok(Some(value)),
-        None => Ok(None),
     }
 }
 

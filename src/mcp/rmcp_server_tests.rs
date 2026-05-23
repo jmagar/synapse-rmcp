@@ -46,8 +46,8 @@ fn read_scope_does_not_satisfy_write() {
 }
 
 #[test]
-fn greet_requires_read_scope() {
-    assert_eq!(required_scope_for_action("greet"), Some(READ_SCOPE));
+fn docker_requires_read_scope() {
+    assert_eq!(required_scope_for_action("docker"), Some(READ_SCOPE));
 }
 
 #[test]
@@ -68,14 +68,14 @@ fn unknown_action_gets_deny_scope() {
 fn unknown_action_is_rejected_as_validation_before_scope() {
     let error = reject_unknown_action_before_scope("nonexistent_action")
         .expect_err("unknown action should be invalid params");
-    assert!(error.message.contains("unknown example action"));
+    assert!(error.message.contains("unknown synapse2 action"));
 }
 
 #[test]
 fn internal_tool_errors_include_stable_kind() {
-    let message = internal_tool_error_message("status");
+    let message = internal_tool_error_message("docker");
     assert!(message.contains("kind=execution_error"));
-    assert!(message.contains("action='status'"));
+    assert!(message.contains("action='docker'"));
 }
 
 #[test]

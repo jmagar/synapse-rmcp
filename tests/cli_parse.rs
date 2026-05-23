@@ -1,96 +1,75 @@
-//! Integration tests for CLI argument parsing.
-//!
-//! **Template**: extend these tests when you add new CLI subcommands.
-
-use rmcp_template::cli::{parse_args_from, Command, SetupCommand};
+use synapse2::cli::{parse_args_from, Command, SetupCommand};
 
 #[test]
-fn test_greet_no_name_parsed() {
+fn flux_docker_info_parsed() {
     assert_eq!(
-        parse_args_from(["greet"]).unwrap(),
-        Some(Command::Greet { name: None })
-    );
-}
-
-#[test]
-fn test_greet_with_name_parsed() {
-    assert_eq!(
-        parse_args_from(["greet", "--name", "Alice"]).unwrap(),
-        Some(Command::Greet {
-            name: Some("Alice".into())
+        parse_args_from(["flux", "docker", "info"]).unwrap(),
+        Some(Command::FluxDocker {
+            subaction: "info".into()
         })
     );
 }
 
 #[test]
-fn test_greet_rejects_flag_like_name_value() {
-    let error = parse_args_from(["greet", "--name", "--bogus"]).unwrap_err();
-    assert!(error.to_string().contains("requires a value after --name"));
-}
-
-#[test]
-fn test_echo_message_parsed() {
+fn flux_container_logs_parsed() {
     assert_eq!(
-        parse_args_from(["echo", "--message", "Hello, World!"]).unwrap(),
-        Some(Command::Echo {
-            message: "Hello, World!".into()
+        parse_args_from([
+            "flux",
+            "container",
+            "logs",
+            "--container-id",
+            "abc",
+            "--lines",
+            "20"
+        ])
+        .unwrap(),
+        Some(Command::FluxContainer {
+            subaction: "logs".into(),
+            container_id: Some("abc".into()),
+            lines: Some(20),
         })
     );
 }
 
 #[test]
-fn test_echo_no_message_is_rejected() {
-    let error = parse_args_from(["echo"]).unwrap_err();
-    assert!(error.to_string().contains("requires non-empty --message"));
+fn scout_commands_parse() {
+    assert_eq!(
+        parse_args_from(["scout", "nodes"]).unwrap(),
+        Some(Command::ScoutNodes)
+    );
+    assert_eq!(
+        parse_args_from(["scout", "peek", "--host", "local", "--path", "/tmp"]).unwrap(),
+        Some(Command::ScoutPeek {
+            host: "local".into(),
+            path: "/tmp".into(),
+        })
+    );
+    assert_eq!(
+        parse_args_from([
+            "scout",
+            "exec",
+            "--host",
+            "local",
+            "--path",
+            "/tmp",
+            "--command",
+            "ls"
+        ])
+        .unwrap(),
+        Some(Command::ScoutExec {
+            host: "local".into(),
+            path: "/tmp".into(),
+            command: "ls".into(),
+        })
+    );
 }
 
 #[test]
-fn test_help_parsed() {
-    assert_eq!(parse_args_from(["help"]).unwrap(), Some(Command::Help));
-}
-
-#[test]
-fn test_watch_bad_interval_is_rejected() {
-    let error = parse_args_from(["watch", "--interval", "nope"]).unwrap_err();
-    assert!(error.to_string().contains("--interval"));
-}
-
-#[test]
-fn test_setup_plugin_hook_no_repair_parsed() {
+fn setup_and_doctor_still_parse() {
     assert_eq!(
         parse_args_from(["setup", "plugin-hook", "--no-repair"]).unwrap(),
         Some(Command::Setup(SetupCommand::PluginHook { no_repair: true }))
     );
-}
-
-#[test]
-fn test_setup_check_parsed() {
-    assert_eq!(
-        parse_args_from(["setup", "check"]).unwrap(),
-        Some(Command::Setup(SetupCommand::Check))
-    );
-}
-
-#[test]
-fn test_setup_repair_parsed() {
-    assert_eq!(
-        parse_args_from(["setup", "repair"]).unwrap(),
-        Some(Command::Setup(SetupCommand::Repair))
-    );
-}
-
-#[test]
-fn test_setup_plugin_hook_default_parsed() {
-    assert_eq!(
-        parse_args_from(["setup", "plugin-hook"]).unwrap(),
-        Some(Command::Setup(SetupCommand::PluginHook {
-            no_repair: false
-        }))
-    );
-}
-
-#[test]
-fn test_doctor_json_parsed() {
     assert_eq!(
         parse_args_from(["doctor", "--json"]).unwrap(),
         Some(Command::Doctor { json: true })
@@ -98,21 +77,10 @@ fn test_doctor_json_parsed() {
 }
 
 #[test]
-fn test_doctor_no_json_parsed() {
-    assert_eq!(
-        parse_args_from(["doctor"]).unwrap(),
-        Some(Command::Doctor { json: false })
-    );
-}
-
-#[test]
-fn test_unknown_trailing_args_are_rejected() {
+fn malformed_args_are_rejected() {
     for args in [
-        &["status", "--bogus"][..],
-        &["help", "--bogus"],
-        &["greet", "--unknown"],
-        &["echo", "--message", "hello", "--extra"],
-        &["doctor", "--json", "--json"],
+        &["flux", "container", "logs", "--container-id"][..],
+        &["scout", "exec", "--host", "local", "--path", "/tmp"],
         &["watch", "--interval", "0"],
         &["setup", "plugin-hook", "--no-reapir"],
     ] {

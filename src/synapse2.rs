@@ -4,49 +4,49 @@
 //! your real server needs. Replace the methods with actual network calls.
 //!
 //! The pattern:
-//!   - `ExampleClient::new()` builds the transport (HTTP client, connection pool, etc.)
+//!   - `SynapseClient::new()` builds the transport (HTTP client, connection pool, etc.)
 //!   - Each method corresponds to one remote operation and returns `Result<Value>`
-//!   - `ExampleService` in `app.rs` wraps this and adds any business logic
-//!   - MCP tools in `mcp/tools.rs` call `ExampleService`, never `ExampleClient` directly
+//!   - `SynapseService` in `app.rs` wraps this and adds any business logic
+//!   - MCP tools in `mcp/tools.rs` call `SynapseService`, never `SynapseClient` directly
 
 use anyhow::Result;
 use serde_json::{json, Value};
 
-use crate::config::ExampleConfig;
+use crate::config::SynapseConfig;
 
-// Unit tests live in a sidecar file — see src/example_tests.rs for the pattern.
+// Unit tests live in a sidecar file — see src/synapse2_tests.rs for the pattern.
 // TEMPLATE: Copy this block into every module that needs unit tests.
 #[cfg(test)]
-#[path = "example_tests.rs"]
+#[path = "synapse2_tests.rs"]
 mod tests;
 
-/// HTTP (or other transport) client for the example remote service.
+/// HTTP (or other transport) client for the synapse2 remote service.
 ///
 /// In a real server this would hold a `reqwest::Client`, connection pool, base URL, etc.
 // These fields are intentionally kept as stubs — a real implementation would use them.
 #[allow(dead_code)]
 #[derive(Clone)]
-pub struct ExampleClient {
-    /// Base URL of the remote service (from `EXAMPLE_API_URL`).
+pub struct SynapseClient {
+    /// Base URL of the remote service (from `SYNAPSE_API_URL`).
     api_url: String,
-    /// API key or bearer token (from `EXAMPLE_API_KEY`).
+    /// API key or bearer token (from `SYNAPSE_API_KEY`).
     api_key: String,
     // In a real server you'd also have:
     //   client: reqwest::Client,
 }
 
-impl ExampleClient {
+impl SynapseClient {
     /// Construct a new client from configuration.
     ///
     /// Returns an error if required config values are missing — this is intentional
     /// so startup fails loudly rather than silently falling back to empty strings.
     ///
     /// **Template**: replace this with real validation / client construction.
-    pub fn new(cfg: &ExampleConfig) -> Result<Self> {
+    pub fn new(cfg: &SynapseConfig) -> Result<Self> {
         // In a template, we allow empty values so the stub works without real creds.
         // A real server would `bail!` here:
-        //   if cfg.api_url.is_empty() { anyhow::bail!("EXAMPLE_API_URL is not set"); }
-        //   if cfg.api_key.is_empty() { anyhow::bail!("EXAMPLE_API_KEY is not set"); }
+        //   if cfg.api_url.is_empty() { anyhow::bail!("SYNAPSE_API_URL is not set"); }
+        //   if cfg.api_key.is_empty() { anyhow::bail!("SYNAPSE_API_KEY is not set"); }
 
         // Build reqwest client if you need one:
         //   let client = reqwest::ClientBuilder::new()

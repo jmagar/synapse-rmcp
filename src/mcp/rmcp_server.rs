@@ -1,11 +1,11 @@
-//! `ExampleRmcpServer` — the `ServerHandler` implementation.
+//! `SynapseRmcpServer` — the `ServerHandler` implementation.
 //!
 //! This is the adapter between the rmcp crate and your application. It:
 //!   - Advertises tools, resources, and prompts to MCP clients
 //!   - Enforces auth scopes on every call
-//!   - Delegates business logic to `tools.rs` → `app.rs` → `example.rs`
+//!   - Delegates business logic to `tools.rs` → `app.rs` → `synapse2.rs`
 //!
-//! **Template**: rename `ExampleRmcpServer`. Update action metadata in
+//! **Template**: rename `SynapseRmcpServer`. Update action metadata in
 //! `src/actions.rs` to keep schemas, scope rules, and dispatch in sync.
 
 use std::{borrow::Cow, sync::Arc, time::Instant};
@@ -35,15 +35,15 @@ use super::{prompts, schemas::tool_definitions, tools::execute_tool};
 // ── server ────────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-pub struct ExampleRmcpServer {
+pub struct SynapseRmcpServer {
     state: AppState,
 }
 
-pub fn rmcp_server(state: AppState) -> ExampleRmcpServer {
-    ExampleRmcpServer { state }
+pub fn rmcp_server(state: AppState) -> SynapseRmcpServer {
+    SynapseRmcpServer { state }
 }
 
-impl ServerHandler for ExampleRmcpServer {
+impl ServerHandler for SynapseRmcpServer {
     // ── tools ─────────────────────────────────────────────────────────────────
 
     async fn list_tools(
@@ -77,6 +77,12 @@ impl ServerHandler for ExampleRmcpServer {
             .map(ToOwned::to_owned);
 
         let auth = require_auth_context(&self.state, &context)?;
+        if tool_name != "flux" && tool_name != "scout" {
+            return Err(ErrorData::invalid_params(
+                format!("unknown tool: {tool_name}"),
+                None,
+            ));
+        }
         if let Some(action_str) = action_opt.as_deref() {
             reject_unknown_action_before_scope(action_str)?;
         }
@@ -143,7 +149,7 @@ impl ServerHandler for ExampleRmcpServer {
     ) -> Result<ListResourcesResult, ErrorData> {
         require_auth_context(&self.state, &context)?;
         Ok(ListResourcesResult {
-            resources: vec![schema_resource()],
+            resources: vec![schema_resource("flux"), schema_resource("scout")],
             ..Default::default()
         })
     }
@@ -154,7 +160,7 @@ impl ServerHandler for ExampleRmcpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, ErrorData> {
         require_auth_context(&self.state, &context)?;
-        if request.uri != SCHEMA_RESOURCE_URI {
+        if request.uri != FLUX_SCHEMA_RESOURCE_URI && request.uri != SCOUT_SCHEMA_RESOURCE_URI {
             return Err(ErrorData::invalid_params(
                 format!("unknown resource: {}", request.uri),
                 None,
@@ -165,7 +171,7 @@ impl ServerHandler for ExampleRmcpServer {
             .map_err(|e| ErrorData::internal_error(format!("serialization error: {e}"), None))?;
         Ok(ReadResourceResult::new(vec![ResourceContents::text(
             text,
-            SCHEMA_RESOURCE_URI,
+            request.uri,
         )
         .with_mime_type("application/json")]))
     }
@@ -209,15 +215,19 @@ impl ServerHandler for ExampleRmcpServer {
 
 // ── resource definitions ──────────────────────────────────────────────────────
 
-/// URI for the schema resource. **Template**: change `example` to your service name.
-const SCHEMA_RESOURCE_URI: &str = "example://schema/mcp-tool";
+/// URI for the schema resource. **Template**: change `synapse2` to your service name.
+const FLUX_SCHEMA_RESOURCE_URI: &str = "synapse://schema/flux";
+const SCOUT_SCHEMA_RESOURCE_URI: &str = "synapse://schema/scout";
 
-fn schema_resource() -> Resource {
+fn schema_resource(tool: &str) -> Resource {
+    let uri = if tool == "flux" {
+        FLUX_SCHEMA_RESOURCE_URI
+    } else {
+        SCOUT_SCHEMA_RESOURCE_URI
+    };
     Resource::new(
-        RawResource::new(SCHEMA_RESOURCE_URI, "example tool schema")
-            .with_description(
-                "JSON schema for the example MCP tool and its action-based parameters",
-            )
+        RawResource::new(uri, format!("{tool} tool schema"))
+            .with_description(format!("JSON schema for the synapse2 {tool} MCP tool"))
             .with_mime_type("application/json"),
         None,
     )

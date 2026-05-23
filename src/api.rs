@@ -1,4 +1,4 @@
-//! REST API handlers — `POST /v1/example`, `GET /health`, `GET /status`, `GET /openapi.json`.
+//! REST API handlers — `POST /v1/synapse2`, `GET /health`, `GET /status`, `GET /openapi.json`.
 //!
 //! All handlers are thin: parse the request, call the service, return JSON.
 //! Business logic lives in `app.rs`.
@@ -13,15 +13,15 @@ use lab_auth::AuthContext;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::actions::{execute_service_action, required_scope_for_action, ExampleAction};
+use crate::actions::{execute_service_action, required_scope_for_action, SynapseAction};
 use crate::server::{AppState, AuthPolicy};
 use crate::token_limit::MAX_RESPONSE_BYTES;
 
-/// Request body for `POST /v1/example`.
+/// Request body for `POST /v1/synapse2`.
 ///
 /// REST uses an explicit `{ action, params }` envelope. MCP uses a flat
 /// argument object such as `{ action, message }`. Both convert into the same
-/// typed `ExampleAction` before calling `ExampleService`.
+/// typed `SynapseAction` before calling `SynapseService`.
 #[derive(Deserialize)]
 pub struct ActionRequest {
     #[serde(default)]
@@ -30,16 +30,15 @@ pub struct ActionRequest {
     pub params: Value,
 }
 
-/// `POST /v1/example` — dispatches an action by name.
+/// `POST /v1/synapse2` — dispatches an action by name.
 ///
-/// Request:  `{"action": "greet", "params": {"name": "Alice"}}`
-/// Response: `{"greeting": "Hello, Alice!", ...}`
+/// Request:  `{"action": "flux.docker.info", "params": {}}`
 pub async fn api_dispatch(
     State(state): State<AppState>,
     auth: Option<Extension<AuthContext>>,
     Json(body): Json<ActionRequest>,
 ) -> impl IntoResponse {
-    let result = match ExampleAction::from_rest(&body.action, &body.params) {
+    let result = match rest_action_from_request(&body.action, &body.params) {
         Ok(action) => {
             if let Some(response) = enforce_rest_scope(
                 &state,
@@ -78,6 +77,45 @@ pub async fn api_dispatch(
             )
                 .into_response()
         }
+    }
+}
+
+fn rest_action_from_request(action: &str, params: &Value) -> Result<SynapseAction> {
+    match action {
+        "help" => Ok(SynapseAction::FluxHelp),
+        "flux.docker.info" => Ok(SynapseAction::FluxDocker {
+            subaction: "info".into(),
+        }),
+        "flux.docker.images" => Ok(SynapseAction::FluxDocker {
+            subaction: "images".into(),
+        }),
+        "flux.docker.networks" => Ok(SynapseAction::FluxDocker {
+            subaction: "networks".into(),
+        }),
+        "flux.docker.volumes" => Ok(SynapseAction::FluxDocker {
+            subaction: "volumes".into(),
+        }),
+        "flux.container.list" => Ok(SynapseAction::FluxContainer {
+            subaction: "list".into(),
+            container_id: None,
+            lines: None,
+        }),
+        "scout.nodes" => Ok(SynapseAction::ScoutNodes),
+        "scout.peek" => Ok(SynapseAction::from_scout_args(&json!({
+            "action": "peek",
+            "host": params.get("host").and_then(Value::as_str).unwrap_or("local"),
+            "path": params.get("path").and_then(Value::as_str).unwrap_or("/tmp")
+        }))?),
+        "scout.exec" => Ok(SynapseAction::from_scout_args(&json!({
+            "action": "exec",
+            "host": params.get("host").and_then(Value::as_str).unwrap_or("local"),
+            "path": params.get("path").and_then(Value::as_str).unwrap_or("/tmp"),
+            "command": params.get("command").and_then(Value::as_str).unwrap_or("")
+        }))?),
+        other => Err(crate::actions::ValidationError::UnknownAction {
+            action: other.to_owned(),
+        }
+        .into()),
     }
 }
 

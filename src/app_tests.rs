@@ -1,4 +1,4 @@
-//! Unit tests for ExampleService — sidecar file for src/app.rs
+//! Unit tests for SynapseService — sidecar file for src/app.rs
 //!
 //! Declared in app.rs as:
 //! ```rust
@@ -7,24 +7,24 @@
 //! mod tests;
 //! ```
 //!
-//! The service layer tests verify that ExampleService correctly delegates to
-//! ExampleClient and that any transformations or caching are correct.
+//! The service layer tests verify that SynapseService correctly delegates to
+//! SynapseClient and that any transformations or caching are correct.
 //!
-//! **Template**: These tests use real ExampleClient instances (pointing at a
+//! **Template**: These tests use real SynapseClient instances (pointing at a
 //! stub URL), which means they test the full delegation chain without mocking.
 //! For services with complex business logic, consider adding mock clients.
 
 use super::*;
-use crate::{config::ExampleConfig, example::ExampleClient};
+use crate::{config::SynapseConfig, synapse2::SynapseClient};
 
-/// Build a stub ExampleService for testing without real credentials.
-fn stub_service() -> ExampleService {
-    let client = ExampleClient::new(&ExampleConfig {
+/// Build a stub SynapseService for testing without real credentials.
+fn stub_service() -> SynapseService {
+    let client = SynapseClient::new(&SynapseConfig {
         api_url: "http://localhost:1/stub".to_string(),
         api_key: "test-key".to_string(),
     })
     .expect("stub client should always build");
-    ExampleService::new(client)
+    SynapseService::new(client)
 }
 
 #[tokio::test]
@@ -110,7 +110,7 @@ fn test_scaffold_intent_transformation_lives_in_service() {
             deployment: "containers".into(),
             plugins: "claude, gemini, none".into(),
             publish_mcp: true,
-            crawl_urls: "https://docs.example.test, https://api.example.test".into(),
+            crawl_urls: "https://docs.synapse2.test, https://api.synapse2.test".into(),
             crawl_repos: "".into(),
             crawl_search_topics: "Lab API".into(),
         })
@@ -214,7 +214,7 @@ fn test_scaffold_intent_rejects_zero_port_and_bad_urls() {
 fn test_scaffold_intent_deduplicates_contract_unique_arrays() {
     let service = stub_service();
     let mut input = valid_scaffold_intent();
-    input.crawl_urls = "https://docs.example.test, https://docs.example.test".into();
+    input.crawl_urls = "https://docs.synapse2.test, https://docs.synapse2.test".into();
 
     let result = service
         .scaffold_intent(input)
@@ -222,7 +222,7 @@ fn test_scaffold_intent_deduplicates_contract_unique_arrays() {
 
     assert_eq!(
         result["crawl_docs"]["urls"],
-        serde_json::json!(["https://docs.example.test"])
+        serde_json::json!(["https://docs.synapse2.test"])
     );
     assert_scaffold_contract_shape(&result);
 }
@@ -242,14 +242,14 @@ fn valid_scaffold_intent() -> ScaffoldIntent {
         deployment: "containers".into(),
         plugins: "claude, gemini, none".into(),
         publish_mcp: true,
-        crawl_urls: "https://docs.example.test, https://api.example.test".into(),
+        crawl_urls: "https://docs.synapse2.test, https://api.synapse2.test".into(),
         crawl_repos: "".into(),
         crawl_search_topics: "Lab API".into(),
     }
 }
 
 fn assert_scaffold_contract_shape(value: &Value) {
-    assert_eq!(value["kind"], "rmcp_template_scaffold_intent");
+    assert_eq!(value["kind"], "synapse2_scaffold_intent");
     assert_eq!(value["schema_version"], 1);
     assert_non_empty_string(&value["project"]["display_name"]);
     assert_matches_kebab(&value["project"]["crate_name"]);
