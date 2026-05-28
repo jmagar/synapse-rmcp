@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::compose::{ComposeDiscovery, ComposeProject};
+use crate::docker_client::DockerClientCache;
 use crate::host_config::{FileHostRepository, HostRepository};
 use crate::ssh::SshPool;
 use crate::synapse2::SynapseClient;
@@ -37,6 +38,9 @@ pub struct SynapseService {
     /// — a fresh per-request engine would never hit the cache. Defaults to an
     /// engine over a fresh `SshPool`. B13 (compose operations) consumes this.
     pub compose: Arc<ComposeDiscovery>,
+    /// Per-host bollard Docker client cache (B2). One client per `HostConfig`,
+    /// reused; remote hosts connect via B1's SSH-forwarded unix socket.
+    pub docker_clients: Arc<DockerClientCache>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +102,7 @@ impl SynapseService {
             client,
             host_repo: Arc::new(FileHostRepository::default()),
             compose: Arc::new(ComposeDiscovery::new(Arc::new(SshPool::new()))),
+            docker_clients: Arc::new(DockerClientCache::new()),
         }
     }
 
@@ -125,6 +130,13 @@ impl SynapseService {
     /// `None`), forcing the next `compose_list` to re-scan.
     pub fn compose_refresh(&self, host_name: Option<&str>) {
         self.compose.refresh(host_name);
+    }
+
+    /// Inject a custom `DockerClientCache` (e.g. one sharing an `SshPool` with
+    /// scout, or a cache primed for tests).
+    pub fn with_docker_clients(mut self, cache: Arc<DockerClientCache>) -> Self {
+        self.docker_clients = cache;
+        self
     }
 
     /// Return a greeting for `name`, defaulting to "World".

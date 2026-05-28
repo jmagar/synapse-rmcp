@@ -23,6 +23,7 @@ pub mod cli;
 pub mod compose;
 pub mod config;
 pub mod docker;
+pub mod docker_client;
 pub mod elicitation_gate;
 pub mod fanout;
 pub mod formatters;
@@ -51,6 +52,11 @@ pub mod testing {
         server::{AppState, AuthPolicy},
         synapse2::SynapseClient,
     };
+
+    /// Re-export of the Docker client test double so action-bead integration
+    /// tests (B8/B9/B10/B13, in the separate `tests/` crate) can construct a
+    /// `&dyn DockerClient` without a live daemon.
+    pub use crate::docker_client::MockDockerClient;
 
     fn stub_service() -> SynapseService {
         let client = SynapseClient::new(&SynapseConfig {

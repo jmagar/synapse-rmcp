@@ -86,6 +86,14 @@ async-trait = "0.1"
 # Concurrent hash map (cache + per-host SSH session pool).
 dashmap = "6"
 
+# Docker Engine API client (flux docker/container/compose ops). Cached per host;
+# remote hosts connect through B1's SSH-forwarded unix socket. bollard's `Docker`
+# is cheap to Clone (Arc-internal), so each cache entry holds it by value.
+bollard = "0.21"
+
+# Stream combinators for bollard logs()/stats() streaming surfaces.
+futures-util = "0.3"
+
 # Static asset embedding (web UI)
 include_dir = { version = "0.7", optional = true }
 
