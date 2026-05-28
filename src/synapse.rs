@@ -1,7 +1,6 @@
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 #[path = "synapse_tests.rs"]
@@ -141,43 +140,6 @@ pub fn validate_command(command: &str, host_allowlist: &[String]) -> Result<()> 
     bail!("command is not allowlisted");
 }
 
-pub fn load_hosts() -> Result<Vec<HostConfig>> {
-    if let Ok(raw) = std::env::var("SYNAPSE_HOSTS_CONFIG") {
-        let hosts: Vec<HostConfig> = serde_json::from_str(&raw)?;
-        if !hosts.is_empty() {
-            return Ok(hosts);
-        }
-    }
-
-    for path in host_config_paths() {
-        if path.exists() {
-            let raw = std::fs::read_to_string(&path)?;
-            let parsed: HostsFile = serde_json::from_str(&raw)?;
-            if !parsed.hosts.is_empty() {
-                return Ok(parsed.hosts);
-            }
-        }
-    }
-
-    Ok(vec![HostConfig::local()])
-}
-
-fn host_config_paths() -> Vec<PathBuf> {
-    if let Ok(path) = std::env::var("SYNAPSE_CONFIG_FILE") {
-        return vec![PathBuf::from(path)];
-    }
-    let mut paths = vec![PathBuf::from("synapse.config.json")];
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-        paths.push(Path::new(&xdg).join("synapse-mcp").join("config.json"));
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        paths.push(
-            Path::new(&home)
-                .join(".config")
-                .join("synapse-mcp")
-                .join("config.json"),
-        );
-        paths.push(Path::new(&home).join(".synapse-mcp.json"));
-    }
-    paths
-}
+// load_hosts() and host_config_paths() have been moved to src/host_config.rs
+// as FileHostRepository / default_config_paths().
+// Use crate::host_config::FileHostRepository::default() for production loading.

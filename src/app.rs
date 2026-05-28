@@ -8,7 +8,9 @@
 
 use anyhow::Result;
 use serde_json::{json, Value};
+use std::sync::Arc;
 
+use crate::host_config::{FileHostRepository, HostRepository};
 use crate::synapse2::SynapseClient;
 use crate::{docker, scout};
 
@@ -24,6 +26,9 @@ mod tests;
 #[derive(Clone)]
 pub struct SynapseService {
     client: SynapseClient,
+    /// Host configuration repository — injected for testability.
+    /// Defaults to `FileHostRepository` (reads env / disk / `~/.ssh/config`).
+    pub host_repo: Arc<dyn HostRepository>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,8 +82,20 @@ impl std::fmt::Display for ScaffoldIntentValidationError {
 impl std::error::Error for ScaffoldIntentValidationError {}
 
 impl SynapseService {
+    /// Create a new `SynapseService` with the production host repository.
+    ///
+    /// The `client` parameter signature is unchanged — existing callers compile as-is.
     pub fn new(client: SynapseClient) -> Self {
-        Self { client }
+        Self {
+            client,
+            host_repo: Arc::new(FileHostRepository::default()),
+        }
+    }
+
+    /// Inject a custom `HostRepository` (for testing or future DI).
+    pub fn with_host_repo(mut self, repo: Arc<dyn HostRepository>) -> Self {
+        self.host_repo = repo;
+        self
     }
 
     /// Return a greeting for `name`, defaulting to "World".
@@ -154,15 +171,15 @@ impl SynapseService {
     }
 
     pub async fn scout_nodes(&self) -> Result<Value> {
-        scout::nodes()
+        scout::nodes(self.host_repo.as_ref())
     }
 
     pub async fn scout_peek(&self, host: &str, path: &str) -> Result<Value> {
-        scout::peek(host, path)
+        scout::peek(self.host_repo.as_ref(), host, path)
     }
 
     pub async fn scout_exec(&self, host: &str, path: &str, command: &str) -> Result<Value> {
-        scout::exec(host, path, command)
+        scout::exec(self.host_repo.as_ref(), host, path, command)
     }
 
     /// Build the response for the elicited-name demo after the MCP shim collects input.

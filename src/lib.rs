@@ -4,14 +4,15 @@
 //! tests can import them without duplicating state construction.
 //!
 //! Public modules:
-//!   [`app`]        — `SynapseService` (business logic)
-//!   [`cache`]      — `Cache` trait and `MemoryCache` implementation (TTL, LRU eviction)
-//!   [`formatters`] — `ResponseFormat` enum + per-domain markdown renderers
-//!   [`config`]     — `Config`, `SynapseConfig`, `McpConfig`
-//!   [`synapse2`] — `SynapseClient` (transport stub)
-//!   [`mcp`]     — MCP protocol layer (tools, schemas, prompts, server handler)
-//!   [`server`]  — `AppState`, `AuthPolicy`, HTTP router
-//!   [`api`]     — REST API handlers (`POST /v1/synapse2`, health, status)
+//!   [`app`]         — `SynapseService` (business logic)
+//!   [`cache`]       — `Cache` trait and `MemoryCache` implementation (TTL, LRU eviction)
+//!   [`formatters`]  — `ResponseFormat` enum + per-domain markdown renderers
+//!   [`config`]      — `Config`, `SynapseConfig`, `McpConfig`
+//!   [`host_config`] — `HostRepository` trait + `FileHostRepository` (precedence chain + SSH auto-discovery)
+//!   [`synapse2`]    — `SynapseClient` (transport stub)
+//!   [`mcp`]         — MCP protocol layer (tools, schemas, prompts, server handler)
+//!   [`server`]      — `AppState`, `AuthPolicy`, HTTP router
+//!   [`api`]         — REST API handlers (`POST /v1/synapse2`, health, status)
 
 pub mod actions;
 pub mod api;
@@ -21,6 +22,7 @@ pub mod cli;
 pub mod config;
 pub mod docker;
 pub mod formatters;
+pub mod host_config;
 pub mod logging;
 pub mod mcp;
 pub mod scout;

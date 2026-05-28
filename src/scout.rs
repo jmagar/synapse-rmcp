@@ -3,23 +3,24 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::process::Command;
 
-use crate::synapse::{load_hosts, validate_command, validate_safe_path, HostConfig, HostProtocol};
+use crate::host_config::HostRepository;
+use crate::synapse::{validate_command, validate_safe_path, HostConfig, HostProtocol};
 
-pub fn nodes() -> Result<Value> {
-    let hosts = load_hosts()?;
+pub fn nodes(repo: &dyn HostRepository) -> Result<Value> {
+    let hosts = repo.load_hosts()?;
     Ok(json!({ "hosts": hosts }))
 }
 
-pub fn resolve_host(name: &str) -> Result<HostConfig> {
-    load_hosts()?
+pub fn resolve_host(repo: &dyn HostRepository, name: &str) -> Result<HostConfig> {
+    repo.load_hosts()?
         .into_iter()
         .find(|host| host.name == name)
         .ok_or_else(|| anyhow::anyhow!("unknown host: {name}"))
 }
 
-pub fn peek(host_name: &str, path: &str) -> Result<Value> {
+pub fn peek(repo: &dyn HostRepository, host_name: &str, path: &str) -> Result<Value> {
     validate_safe_path(path)?;
-    let host = resolve_host(host_name)?;
+    let host = resolve_host(repo, host_name)?;
     if host.protocol != HostProtocol::Local && host.host != "localhost" {
         bail!("scout peek remote hosts are deferred in synapse2 MVP");
     }
@@ -46,9 +47,14 @@ pub fn peek(host_name: &str, path: &str) -> Result<Value> {
     }))
 }
 
-pub fn exec(host_name: &str, path: &str, command: &str) -> Result<Value> {
+pub fn exec(
+    repo: &dyn HostRepository,
+    host_name: &str,
+    path: &str,
+    command: &str,
+) -> Result<Value> {
     validate_safe_path(path)?;
-    let host = resolve_host(host_name)?;
+    let host = resolve_host(repo, host_name)?;
     validate_command(command, &host.exec_allowlist)?;
     if host.protocol != HostProtocol::Local && host.host != "localhost" {
         bail!("scout exec remote hosts are deferred in synapse2 MVP");
