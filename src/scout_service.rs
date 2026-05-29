@@ -17,11 +17,12 @@
 //! | `logs`    | `syslog`, `journal`, `dmesg`, `auth` — log retrieval (B15) |
 
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::sync::Arc;
 
 use crate::elicitation_gate::Confirmer;
 use crate::host_config::HostRepository;
+use crate::mcp::help as help_module;
 use crate::scout;
 use crate::ssh::{SshExecutor, SshPool};
 
@@ -62,14 +63,16 @@ impl ScoutService {
 
     // ── help ─────────────────────────────────────────────────────────────────
 
-    pub async fn help(&self) -> Result<Value> {
-        Ok(json!({
-            "tool": "scout",
-            "actions": ["nodes", "peek", "find", "ps", "df", "delta", "exec", "emit", "beam", "zfs", "logs", "help"],
-            "destructive": ["exec", "emit", "beam"],
-            "zfs_subactions": ["pools", "datasets", "snapshots"],
-            "logs_subactions": ["syslog", "journal", "dmesg", "auth"],
-        }))
+    /// Return help for the scout tool.
+    ///
+    /// - `topic=None` → topic index (backwards-compatible shape extended with `topics`).
+    /// - `topic=Some(t)` → per-subaction markdown for topic `t`; error if unknown.
+    /// - `format=Some("json")` → wrap result in `{topic, text}` JSON envelope.
+    pub async fn help(&self, topic: Option<&str>, format: Option<&str>) -> Result<Value> {
+        match topic {
+            None => Ok(help_module::legacy_scout_help()),
+            Some(_) => help_module::help_response("scout", topic, format),
+        }
     }
 
     // ── nodes ────────────────────────────────────────────────────────────────

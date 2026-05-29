@@ -129,7 +129,10 @@ impl super::SynapseAction {
             .and_then(Value::as_str)
             .ok_or(ValidationError::MissingAction)?;
         match action {
-            "help" => Ok(Self::ScoutHelp),
+            "help" => Ok(Self::ScoutHelp {
+                topic: super::optional_string_param(args, "topic")?,
+                format: super::optional_string_param(args, "format")?,
+            }),
             "nodes" => Ok(Self::ScoutNodes),
             "peek" => Ok(Self::ScoutPeek {
                 host: required_string_param(args, "host")?,

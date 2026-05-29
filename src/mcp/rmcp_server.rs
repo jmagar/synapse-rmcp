@@ -15,8 +15,8 @@ use rmcp::{
     model::{
         CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams, GetPromptResult,
         Implementation, ListPromptsResult, ListResourcesResult, ListToolsResult,
-        PaginatedRequestParams, RawResource, ReadResourceRequestParams, ReadResourceResult,
-        Resource, ResourceContents, ServerCapabilities, ServerInfo, Tool,
+        PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult, ServerCapabilities,
+        ServerInfo, Tool,
     },
     service::{Peer, RequestContext},
     ErrorData, RoleServer, ServerHandler,
@@ -30,7 +30,7 @@ use crate::{
 
 use crate::server::{AppState, AuthPolicy};
 
-use super::{prompts, schemas::tool_definitions, tools::execute_tool};
+use super::{prompts, resources, schemas::tool_definitions, tools::execute_tool};
 
 // ── server ────────────────────────────────────────────────────────────────────
 
@@ -175,7 +175,7 @@ impl ServerHandler for SynapseRmcpServer {
     ) -> Result<ListResourcesResult, ErrorData> {
         require_auth_context(&self.state, &context)?;
         Ok(ListResourcesResult {
-            resources: vec![schema_resource("flux"), schema_resource("scout")],
+            resources: resources::all_resources(),
             ..Default::default()
         })
     }
@@ -186,20 +186,16 @@ impl ServerHandler for SynapseRmcpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, ErrorData> {
         require_auth_context(&self.state, &context)?;
-        if request.uri != FLUX_SCHEMA_RESOURCE_URI && request.uri != SCOUT_SCHEMA_RESOURCE_URI {
-            return Err(ErrorData::invalid_params(
-                format!("unknown resource: {}", request.uri),
-                None,
-            ));
-        }
-        let schema = tool_definitions();
-        let text = serde_json::to_string_pretty(&schema)
-            .map_err(|e| ErrorData::internal_error(format!("serialization error: {e}"), None))?;
-        Ok(ReadResourceResult::new(vec![ResourceContents::text(
-            text,
-            request.uri,
-        )
-        .with_mime_type("application/json")]))
+        let contents = resources::read_resource(&request.uri, &self.state)
+            .await
+            .map_err(|e| {
+                if e.to_string().contains("unknown resource") {
+                    ErrorData::invalid_params(e.to_string(), None)
+                } else {
+                    ErrorData::internal_error(format!("resource read failed: {e}"), None)
+                }
+            })?;
+        Ok(ReadResourceResult::new(vec![contents]))
     }
 
     // ── prompts ───────────────────────────────────────────────────────────────
@@ -237,26 +233,6 @@ impl ServerHandler for SynapseRmcpServer {
             env!("CARGO_PKG_VERSION"),
         ))
     }
-}
-
-// ── resource definitions ──────────────────────────────────────────────────────
-
-/// URI for the schema resource. **Template**: change `synapse2` to your service name.
-const FLUX_SCHEMA_RESOURCE_URI: &str = "synapse://schema/flux";
-const SCOUT_SCHEMA_RESOURCE_URI: &str = "synapse://schema/scout";
-
-fn schema_resource(tool: &str) -> Resource {
-    let uri = if tool == "flux" {
-        FLUX_SCHEMA_RESOURCE_URI
-    } else {
-        SCOUT_SCHEMA_RESOURCE_URI
-    };
-    Resource::new(
-        RawResource::new(uri, format!("{tool} tool schema"))
-            .with_description(format!("JSON schema for the synapse2 {tool} MCP tool"))
-            .with_mime_type("application/json"),
-        None,
-    )
 }
 
 // ── tool definition conversion ────────────────────────────────────────────────

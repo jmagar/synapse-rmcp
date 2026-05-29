@@ -130,7 +130,10 @@ impl super::SynapseAction {
             .and_then(Value::as_str)
             .ok_or(ValidationError::MissingAction)?;
         match action {
-            "help" => Ok(Self::FluxHelp),
+            "help" => Ok(Self::FluxHelp {
+                topic: optional_string_param(args, "topic")?,
+                format: optional_string_param(args, "format")?,
+            }),
             "docker" => Ok(Self::FluxDocker(Box::new(DockerArgs {
                 subaction: required_string_param(args, "subaction")?,
                 host: optional_string_param(args, "host")?,

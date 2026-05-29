@@ -26,7 +26,7 @@ fn stub_repo() -> Arc<dyn HostRepository> {
 #[tokio::test]
 async fn test_scout_help_shape() {
     let scout = ScoutService::new(stub_repo());
-    let result = scout.help().await.expect("help should succeed");
+    let result = scout.help(None, None).await.expect("help should succeed");
 
     assert_eq!(result["tool"], "scout");
     // All 9 B14 actions + help must be present.

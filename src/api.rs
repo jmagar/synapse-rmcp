@@ -92,7 +92,10 @@ pub async fn api_dispatch(
 
 fn rest_action_from_request(action: &str, params: &Value) -> Result<SynapseAction> {
     match action {
-        "help" => Ok(SynapseAction::FluxHelp),
+        "help" => Ok(SynapseAction::FluxHelp {
+            topic: None,
+            format: None,
+        }),
         // Docker subactions over REST. Merge caller params (host, dangling_only,
         // image, etc.) into the flux arg shape so REST honors the same options
         // as MCP/CLI. Destructive subactions (build/rmi/prune) are reachable

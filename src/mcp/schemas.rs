@@ -32,6 +32,8 @@ fn build_tool_definitions() -> Vec<Value> {
                 "type": "object",
                 "properties": {
                     "action": { "type": "string", "enum": ["help", "docker", "container", "host", "compose"] },
+                    "topic": { "type": "string", "description": "help: topic key (e.g. \"container:list\"). Omit for the topic index." },
+                    "format": { "type": "string", "enum": ["markdown", "json"], "description": "help: output format (default markdown)." },
                     "subaction": {
                         "type": "string",
                         "description": "For action=container: list|inspect|logs|stats|top|search|start|stop|restart|pause|resume|pull|recreate|exec. For action=docker: info|df|images|networks|volumes|pull|build|rmi|prune. For action=host: status|info|uptime|resources|services|network|mounts|ports|doctor. For action=compose: list|status|up|down|restart|recreate|logs|build|pull|refresh."
@@ -82,6 +84,8 @@ fn build_tool_definitions() -> Vec<Value> {
                         "type": "string",
                         "enum": ["help", "nodes", "peek", "find", "ps", "df", "delta", "exec", "emit", "beam", "zfs", "logs"]
                     },
+                    "topic": { "type": "string", "description": "help: topic key (e.g. \"exec\", \"zfs:pools\"). Omit for the topic index." },
+                    "format": { "type": "string", "enum": ["markdown", "json"], "description": "help: output format (default markdown)." },
                     "subaction": {
                         "type": "string",
                         "description": "For action=zfs: pools|datasets|snapshots. For action=logs: syslog|journal|dmesg|auth."

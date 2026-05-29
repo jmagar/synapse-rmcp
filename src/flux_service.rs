@@ -27,6 +27,7 @@ use crate::compose::ComposeDiscovery;
 use crate::docker_client::DockerClientCache;
 use crate::fanout::FanoutOutcome;
 use crate::host_config::HostRepository;
+use crate::mcp::help as help_module;
 use crate::scout;
 use crate::ssh::SshPool;
 use crate::synapse::HostConfig;
@@ -85,34 +86,16 @@ impl FluxService {
         }
     }
 
-    pub async fn help(&self) -> Result<Value> {
-        Ok(json!({
-            "tool": "flux",
-            "actions": {
-                "docker": [
-                    "info", "df", "images", "networks", "volumes",
-                    "pull", "build", "rmi", "prune"
-                ],
-                "container": [
-                    "list", "inspect", "logs", "stats", "top", "search",
-                    "start", "stop", "restart", "pause", "resume", "pull", "recreate", "exec"
-                ],
-                "host": [
-                    "status", "info", "uptime", "resources",
-                    "services", "network", "mounts", "ports", "doctor"
-                ],
-                "compose": [
-                    "list", "status", "up", "down", "restart",
-                    "recreate", "logs", "build", "pull", "refresh"
-                ],
-                "help": []
-            },
-            "destructive": [
-                "docker build", "docker rmi", "docker prune",
-                "compose down", "compose restart", "compose recreate",
-                "container stop", "container recreate", "container exec"
-            ],
-        }))
+    /// Return help for the flux tool.
+    ///
+    /// - `topic=None` → topic index (backwards-compatible shape extended with `topics`).
+    /// - `topic=Some(t)` → per-subaction markdown for topic `t`; error if unknown.
+    /// - `format=Some("json")` → wrap result in `{topic, text}` JSON envelope.
+    pub async fn help(&self, topic: Option<&str>, format: Option<&str>) -> Result<Value> {
+        match topic {
+            None => Ok(help_module::legacy_flux_help()),
+            Some(_) => help_module::help_response("flux", topic, format),
+        }
     }
 
     // ── shared private helpers (used by multiple driver submodules) ───────

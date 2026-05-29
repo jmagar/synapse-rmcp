@@ -67,7 +67,11 @@ This is a hard rule, enforced by a gate, not a suggestion.
 
 7. **`tests/tool_dispatch.rs`** — add a test.
 
-8. **`CHANGELOG.md`** — add an entry under `[Unreleased]` describing the new action.
+8. **`src/mcp/help.rs`** — add a help-text entry to the static `HashMap` keyed by `"<domain>:<action>"` (e.g., `"container:list"`, `"zfs:pools"`). For scout simple actions (no subaction), key is just the action name (e.g., `"exec"`, `"nodes"`). Also add the key to `flux_topic_keys()` or `scout_topic_keys()` filter logic if needed.
+
+   **Manual-sync rule**: the help map is NOT auto-generated from `ACTION_SPECS`. Synchronization is enforced by code review at action-add time — there is no meta-test. When your PR adds an action, the reviewer must check that a help entry exists. If you skip step 8, the `help` action will return "unknown topic" for your new action.
+
+9. **`CHANGELOG.md`** — add an entry under `[Unreleased]` describing the new action.
 
 For actions with parameters, extract them with `string_arg(&args, "param_name")` in `tools.rs`.
 

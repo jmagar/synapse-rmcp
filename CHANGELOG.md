@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP resources expansion + topic-aware help (B16)**:
+  - `list_resources` now returns 6 URIs: `synapse://schema/flux`, `synapse://schema/scout`, `synapse://hosts`, `synapse://compose/projects`, `synapse://help/flux`, `synapse://help/scout`.
+  - `read_resource` delegates to new `src/mcp/resources.rs` which serves all 6 resources. Schema resources return full tool JSON schemas; hosts/compose return live data from host repo and ComposeDiscovery cache; help resources return full per-domain markdown.
+  - `flux(action="help", topic="container:list")` and `scout(action="help", topic="exec")` now return per-subaction markdown documentation. Unknown topics return a clear error. `topic` omitted → topic index (backwards-compatible legacy shape + `topics` key). `format="json"` wraps the response in `{topic, text}`.
+  - `src/mcp/help.rs` — static `HashMap<&'static str, &'static str>` with 59 topic entries covering all flux (`docker:*`, `container:*`, `host:*`, `compose:*`) and scout (`nodes`, `peek`, `find`, `ps`, `df`, `delta`, `exec`, `emit`, `beam`, `zfs:*`, `logs:*`) topics.
+  - `src/mcp/resources.rs` — resource enumeration (`all_resources()`) and read handlers.
+  - `SynapseAction::FluxHelp`/`ScoutHelp` variants updated from unit to struct variants carrying `topic: Option<String>` and `format: Option<String>`.
+  - flux and scout inputSchemas updated with `topic` and `format` properties (required for `additionalProperties: false` compliance).
+  - CLAUDE.md "How to add an action" checklist updated with step 8: add a help-text entry to `src/mcp/help.rs` keyed by `"<domain>:<action>"`.
+
 - **container lifecycle subactions (B9)** — 8 new `flux container` subactions reachable from both MCP (`flux` tool) and CLI (`synapse2 flux container …`):
   - `start`, `restart`, `pause`, `resume` — simple lifecycle ops; ungated (parity with synapse-mcp).
   - `stop` — DESTRUCTIVE (B5 Confirmer gate before any IO); maps to Docker `stop`.

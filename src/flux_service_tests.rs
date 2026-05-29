@@ -13,7 +13,7 @@ fn stub_flux() -> FluxService {
 #[tokio::test]
 async fn test_flux_help_shape() {
     let flux = stub_flux();
-    let result = flux.help().await.expect("help should succeed");
+    let result = flux.help(None, None).await.expect("help should succeed");
 
     assert_eq!(result["tool"], "flux");
     assert_eq!(

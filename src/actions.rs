@@ -247,12 +247,21 @@ fn action_spec(action: &str) -> Option<&'static ActionSpec> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SynapseAction {
-    FluxHelp,
+    /// B16: topic-aware help for the flux tool.
+    /// `topic=None` → index; `topic=Some(t)` → per-subaction docs.
+    FluxHelp {
+        topic: Option<String>,
+        format: Option<String>,
+    },
     FluxDocker(Box<DockerArgs>),
     FluxContainer(Box<ContainerArgs>),
     FluxHost(Box<HostArgs>),
     FluxCompose(Box<ComposeArgs>),
-    ScoutHelp,
+    /// B16: topic-aware help for the scout tool.
+    ScoutHelp {
+        topic: Option<String>,
+        format: Option<String>,
+    },
     ScoutNodes,
     ScoutPeek {
         host: String,
@@ -279,7 +288,7 @@ pub enum SynapseAction {
 impl SynapseAction {
     pub fn name(&self) -> &'static str {
         match self {
-            Self::FluxHelp | Self::ScoutHelp => "help",
+            Self::FluxHelp { .. } | Self::ScoutHelp { .. } => "help",
             Self::FluxDocker(_) => "docker",
             Self::FluxContainer(_) => "container",
             Self::FluxHost(_) => "host",

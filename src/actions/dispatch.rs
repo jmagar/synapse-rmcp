@@ -26,14 +26,24 @@ pub async fn execute_service_action(
     confirmer: &dyn crate::elicitation_gate::Confirmer,
 ) -> Result<Value> {
     match action {
-        SynapseAction::FluxHelp => service.flux().help().await,
+        SynapseAction::FluxHelp { topic, format } => {
+            service
+                .flux()
+                .help(topic.as_deref(), format.as_deref())
+                .await
+        }
         SynapseAction::FluxDocker(args) => dispatch_flux_docker(service, args, confirmer).await,
         SynapseAction::FluxContainer(args) => {
             dispatch_flux_container(service, args, confirmer).await
         }
         SynapseAction::FluxHost(args) => dispatch_flux_host(service, args).await,
         SynapseAction::FluxCompose(args) => dispatch_flux_compose(service, args, confirmer).await,
-        SynapseAction::ScoutHelp => service.scout().help().await,
+        SynapseAction::ScoutHelp { topic, format } => {
+            service
+                .scout()
+                .help(topic.as_deref(), format.as_deref())
+                .await
+        }
         SynapseAction::ScoutNodes => service.scout().nodes().await,
         SynapseAction::ScoutPeek {
             host,

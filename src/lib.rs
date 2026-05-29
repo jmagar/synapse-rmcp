@@ -1,4 +1,7 @@
 //! `synapse2` library crate.
+// The `json!` macro in schemas.rs requires a higher recursion limit due to the
+// large size of the tool schema definitions. 256 is sufficient; the default is 128.
+#![recursion_limit = "256"]
 //!
 //! Exposes the service layer, config, and transport client so that integration
 //! tests can import them without duplicating state construction.
