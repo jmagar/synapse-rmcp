@@ -6,7 +6,12 @@
 //! semaphore, connect timeout) always run.
 
 use super::*;
+use openssh::Session;
+use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::Semaphore;
 
 fn host(name: &str) -> HostConfig {
     HostConfig {
