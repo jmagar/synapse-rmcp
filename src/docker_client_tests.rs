@@ -6,6 +6,8 @@
 
 use super::*;
 use crate::synapse::{HostConfig, HostProtocol};
+use bollard::exec::StartExecResults;
+use bollard::models::{ContainerSummary, ImageSummary, Network};
 
 fn local_host(name: &str) -> HostConfig {
     HostConfig {
