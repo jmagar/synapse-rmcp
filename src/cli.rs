@@ -193,10 +193,10 @@ pub async fn run(cmd: Command, cfg: &SynapseConfig) -> Result<()> {
 
     let result = match &cmd {
         Command::FluxDocker { subaction } => match subaction.as_str() {
-            "info" => service.flux_docker_info().await?,
-            "images" => service.flux_docker_images().await?,
-            "networks" => service.flux_docker_networks().await?,
-            "volumes" => service.flux_docker_volumes().await?,
+            "info" => service.flux().docker_info().await?,
+            "images" => service.flux().docker_images().await?,
+            "networks" => service.flux().docker_networks().await?,
+            "volumes" => service.flux().docker_volumes().await?,
             other => return Err(anyhow!("unknown flux docker subaction `{other}`")),
         },
         Command::FluxContainer {
@@ -204,10 +204,11 @@ pub async fn run(cmd: Command, cfg: &SynapseConfig) -> Result<()> {
             container_id,
             lines,
         } => match subaction.as_str() {
-            "list" => service.flux_container_list().await?,
+            "list" => service.flux().container_list().await?,
             "inspect" => {
                 service
-                    .flux_container_inspect(
+                    .flux()
+                    .container_inspect(
                         container_id
                             .as_deref()
                             .ok_or_else(|| anyhow!("container inspect requires --container-id"))?,
@@ -216,7 +217,8 @@ pub async fn run(cmd: Command, cfg: &SynapseConfig) -> Result<()> {
             }
             "logs" => {
                 service
-                    .flux_container_logs(
+                    .flux()
+                    .container_logs(
                         container_id
                             .as_deref()
                             .ok_or_else(|| anyhow!("container logs requires --container-id"))?,
@@ -227,16 +229,16 @@ pub async fn run(cmd: Command, cfg: &SynapseConfig) -> Result<()> {
             other => return Err(anyhow!("unknown flux container subaction `{other}`")),
         },
         Command::FluxHost { subaction, host } => match subaction.as_str() {
-            "status" => service.flux_host_status(host.as_deref()).await?,
+            "status" => service.flux().host_status(host.as_deref()).await?,
             other => return Err(anyhow!("unknown flux host subaction `{other}`")),
         },
-        Command::ScoutNodes => service.scout_nodes().await?,
-        Command::ScoutPeek { host, path } => service.scout_peek(host, path).await?,
+        Command::ScoutNodes => service.scout().nodes().await?,
+        Command::ScoutPeek { host, path } => service.scout().peek(host, path).await?,
         Command::ScoutExec {
             host,
             path,
             command,
-        } => service.scout_exec(host, path, command).await?,
+        } => service.scout().exec(host, path, command).await?,
         Command::Help => rest_help(),
         // Doctor, Watch, and Setup are never dispatched via this function — main.rs
         // handles them directly because they need config.mcp fields.

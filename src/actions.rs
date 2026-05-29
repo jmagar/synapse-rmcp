@@ -262,12 +262,12 @@ pub async fn execute_service_action(
     action: &SynapseAction,
 ) -> Result<Value> {
     match action {
-        SynapseAction::FluxHelp => service.flux_help().await,
+        SynapseAction::FluxHelp => service.flux().help().await,
         SynapseAction::FluxDocker { subaction } => match subaction.as_str() {
-            "info" => service.flux_docker_info().await,
-            "images" => service.flux_docker_images().await,
-            "networks" => service.flux_docker_networks().await,
-            "volumes" => service.flux_docker_volumes().await,
+            "info" => service.flux().docker_info().await,
+            "images" => service.flux().docker_images().await,
+            "networks" => service.flux().docker_networks().await,
+            "volumes" => service.flux().docker_volumes().await,
             other => Err(ValidationError::UnknownAction {
                 action: format!("docker:{other}"),
             }
@@ -278,10 +278,11 @@ pub async fn execute_service_action(
             container_id,
             lines,
         } => match subaction.as_str() {
-            "list" => service.flux_container_list().await,
+            "list" => service.flux().container_list().await,
             "inspect" => {
                 service
-                    .flux_container_inspect(container_id.as_deref().ok_or_else(|| {
+                    .flux()
+                    .container_inspect(container_id.as_deref().ok_or_else(|| {
                         ValidationError::MissingField {
                             field: "container_id".into(),
                         }
@@ -290,7 +291,8 @@ pub async fn execute_service_action(
             }
             "logs" => {
                 service
-                    .flux_container_logs(
+                    .flux()
+                    .container_logs(
                         container_id
                             .as_deref()
                             .ok_or_else(|| ValidationError::MissingField {
@@ -306,20 +308,20 @@ pub async fn execute_service_action(
             .into()),
         },
         SynapseAction::FluxHost { subaction, host } => match subaction.as_str() {
-            "status" => service.flux_host_status(host.as_deref()).await,
+            "status" => service.flux().host_status(host.as_deref()).await,
             other => Err(ValidationError::UnknownAction {
                 action: format!("host:{other}"),
             }
             .into()),
         },
-        SynapseAction::ScoutHelp => service.scout_help().await,
-        SynapseAction::ScoutNodes => service.scout_nodes().await,
-        SynapseAction::ScoutPeek { host, path } => service.scout_peek(host, path).await,
+        SynapseAction::ScoutHelp => service.scout().help().await,
+        SynapseAction::ScoutNodes => service.scout().nodes().await,
+        SynapseAction::ScoutPeek { host, path } => service.scout().peek(host, path).await,
         SynapseAction::ScoutExec {
             host,
             path,
             command,
-        } => service.scout_exec(host, path, command).await,
+        } => service.scout().exec(host, path, command).await,
     }
 }
 
