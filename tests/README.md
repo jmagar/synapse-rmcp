@@ -87,7 +87,7 @@ bash tests/mcporter/test-mcp.sh --parallel
 # Verbose raw output
 bash tests/mcporter/test-mcp.sh --verbose
 
-# Default target is http://localhost:40060/mcp (the `just dev` port).
+# Default target is http://localhost:40080/mcp (the `just dev` port).
 # Override target when testing another deployment:
 EXAMPLE_MCP_HOST=127.0.0.1 EXAMPLE_MCP_PORT=3100 bash tests/mcporter/test-mcp.sh
 ```

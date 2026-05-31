@@ -41,7 +41,7 @@ pub struct McpConfig {
     /// Set to `0.0.0.0` to listen on all interfaces — requires auth configured.
     #[serde(default = "default_mcp_host")]
     pub host: String,
-    /// Bind port (SYNAPSE_MCP_PORT). Default: `40060`.
+    /// Bind port (SYNAPSE_MCP_PORT). Default: `40080`.
     #[serde(default = "default_mcp_port")]
     pub port: u16,
     /// MCP server name advertised to clients (SYNAPSE_MCP_SERVER_NAME).
@@ -130,7 +130,7 @@ fn default_mcp_host() -> String {
     "127.0.0.1".into()
 }
 fn default_mcp_port() -> u16 {
-    40060
+    40080
 }
 fn default_server_name() -> String {
     "synapse2".into()

@@ -183,7 +183,7 @@ EXAMPLE_MCP_TOKEN=... bash scripts/generate-cli.sh
 just generate-cli
 ```
 
-Generates a standalone CLI binary for this server via `mcporter generate-cli`. Requires a running server on port 40060 and `mcporter` in PATH. Caches a schema hash under `dist/.cache/` and skips regeneration when the tool schema is unchanged. The generated binary embeds the token — do not commit or share it.
+Generates a standalone CLI binary for this server via `mcporter generate-cli`. Requires a running server on port 40080 and `mcporter` in PATH. Caches a schema hash under `dist/.cache/` and skips regeneration when the tool schema is unchanged. The generated binary embeds the token — do not commit or share it.
 
 **TEMPLATE:** Update the port and token env var name in this script when adapting.
 

@@ -57,9 +57,9 @@ RUN groupadd --gid 1000 example && \
     mkdir -p /data && chown example:example /data
 
 USER 1000:1000
-EXPOSE 40060/tcp
+EXPOSE 40080/tcp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -sf http://localhost:40060/health || exit 1
+  CMD curl -sf http://localhost:40080/health || exit 1
 CMD ["example", "serve", "mcp"]
 ```
 
@@ -79,13 +79,13 @@ services:
       - path: .env
         required: false
     ports:
-      - "${EXAMPLE_MCP_HOST_PORT:-40060}:40060/tcp"
+      - "${EXAMPLE_MCP_HOST_PORT:-40080}:40080/tcp"
     volumes:
       - ${HOME}/.example:/data
     networks:
       - mcp
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:40060/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:40080/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

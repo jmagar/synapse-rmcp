@@ -8,7 +8,7 @@
 #   "example-mcp"          -> your Docker service/container name
 #   "example-mcp-data"     -> your Docker volume name
 #   "ghcr.io/.../example"  -> your published Docker image path
-#   port 40060             -> your service's MCP port
+#   port 40080             -> your service's MCP port
 #   EXAMPLE_*              -> your env var prefix
 # =============================================================================
 
@@ -44,7 +44,7 @@ services:
       EXAMPLE_MCP_HOST: 0.0.0.0
       EXAMPLE_NOAUTH: "true"
     ports:
-      - "${EXAMPLE_MCP_HOST_PORT:-40060}:40060/tcp"
+      - "${EXAMPLE_MCP_HOST_PORT:-40080}:40080/tcp"
     volumes:
       - ${HOME}/.example:/data
     cap_drop:
@@ -56,7 +56,7 @@ services:
     tmpfs:
       - /tmp
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:40060/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:40080/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

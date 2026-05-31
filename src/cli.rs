@@ -100,7 +100,7 @@ Environment:
   SYNAPSE_API_URL          Upstream service URL
   SYNAPSE_API_KEY          Upstream service API key
   SYNAPSE_MCP_HOST         Bind host (default 127.0.0.1)
-  SYNAPSE_MCP_PORT         Bind port (default 40060)
+  SYNAPSE_MCP_PORT         Bind port (default 40080)
   SYNAPSE_MCP_NO_AUTH      Disable auth (loopback only)
   SYNAPSE_MCP_TOKEN        Static bearer token
   RUST_LOG                 Log filter (e.g. info,rmcp=warn)";

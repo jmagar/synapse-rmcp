@@ -38,14 +38,14 @@ just test-mcporter
 {
   "mcpServers": {
     "example": {
-      "url": "http://localhost:40060/mcp",
+      "url": "http://localhost:40080/mcp",
       "transport": "http"
     }
   }
 }
 ```
 
-The script targets `http://<EXAMPLE_MCP_HOST>:<EXAMPLE_MCP_PORT>/mcp`, defaulting to `http://localhost:40060/mcp` to match `just dev`. It remaps `0.0.0.0` to `localhost`. If `EXAMPLE_MCP_TOKEN` is set, it sends `Authorization: Bearer <token>`.
+The script targets `http://<EXAMPLE_MCP_HOST>:<EXAMPLE_MCP_PORT>/mcp`, defaulting to `http://localhost:40080/mcp` to match `just dev`. It remaps `0.0.0.0` to `localhost`. If `EXAMPLE_MCP_TOKEN` is set, it sends `Authorization: Bearer <token>`.
 
 ## What the test suite validates
 

@@ -1060,7 +1060,7 @@ curl -H "Authorization: Bearer $EXAMPLE_API_KEY" \
 | unifi-mcp (rustifi) | 7474 | `unifi` |
 | tailscale-mcp (rustscale) | 7575 | `tailscale` |
 | apprise-mcp | 8765 | `apprise` |
-| rmcp-template | 40060 | `example` |
+| rmcp-template | 40080 | `example` |
 
 ---
 
@@ -2546,7 +2546,7 @@ example-mcp v0.1.0 — environment check
 
   MCP server
   ──────────────────────────────────────────────
-  ✓ MCP port 40060:    available  # TEMPLATE: canonical rmcp-template port is 40060 (EXAMPLE_MCP_PORT)
+  ✓ MCP port 40080:    available  # TEMPLATE: canonical rmcp-template port is 40080 (EXAMPLE_MCP_PORT)
   ✓ Auth mode:         no-auth (EXAMPLE_NOAUTH=true)
 
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2685,8 +2685,8 @@ preflight() {
         || echo "⚠  EXAMPLE_API_KEY: not set (required before running the server)"
 
     # 7. Port availability (warn only)
-    # TEMPLATE: canonical rmcp-template port is 40060; update this default when adapting
-    local port="${EXAMPLE_MCP_PORT:-40060}"
+    # TEMPLATE: canonical rmcp-template port is 40080; update this default when adapting
+    local port="${EXAMPLE_MCP_PORT:-40080}"
     if ss -tlnp "sport = :${port}" 2>/dev/null | awk 'NR>1' | grep -q .; then
         echo "⚠  Port ${port}: already in use (change EXAMPLE_MCP_PORT if needed)"
     else
