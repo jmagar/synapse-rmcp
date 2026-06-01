@@ -37,7 +37,7 @@ just test-mcporter
 ```json
 {
   "mcpServers": {
-    "example": {
+    "synapse2": {
       "url": "http://localhost:40080/mcp",
       "transport": "http"
     }
@@ -45,15 +45,18 @@ just test-mcporter
 }
 ```
 
-The script targets `http://<EXAMPLE_MCP_HOST>:<EXAMPLE_MCP_PORT>/mcp`, defaulting to `http://localhost:40080/mcp` to match `just dev`. It remaps `0.0.0.0` to `localhost`. If `EXAMPLE_MCP_TOKEN` is set, it sends `Authorization: Bearer <token>`.
+The script targets `http://<SYNAPSE_MCP_HOST>:<SYNAPSE_MCP_PORT>/mcp`, defaulting to `http://localhost:40080/mcp` to match `just dev`. It remaps `0.0.0.0` to `localhost`. If `SYNAPSE_MCP_TOKEN` is set, it sends `Authorization: Bearer <token>`. Credentials are also sourced from `~/.synapse2/.env` when present.
+
+synapse2 exposes two real MCP tools: `flux` (Docker: docker / container / host / compose) and `scout` (SSH/local host inspection: nodes / peek / find / ps / df / delta / exec / emit / beam / zfs / logs). The smoke-test only exercises **read-only / non-destructive** actions — destructive actions (docker build/rmi/prune, container stop/recreate/exec, compose down/restart/recreate, scout exec/emit/beam) require elicitation confirmation and are never called.
 
 ## What the test suite validates
 
-- auth rejection when `EXAMPLE_MCP_TOKEN` is set
-- tool semantic behavior for `greet`, `echo`, `status`, and `help`
-- MCP resource behavior for `example://schema/mcp-tool`
+- auth rejection when `SYNAPSE_MCP_TOKEN` is set (unauthenticated and bad-token both return HTTP 401)
+- `scout` semantic behavior: `nodes` returns a `hosts` array, `help` returns `tool == "scout"` with a `topics` index
+- `flux` semantic behavior: `docker info` and `host status` return the fanout envelope (`count`, the per-action result list, `partial`); `help` returns `tool == "flux"` with the docker action group
+- MCP resource behavior for `synapse://schema/flux` and `synapse://schema/scout` (both return the full tool-definitions array containing `flux` and `scout`)
 
-The resource suite prefers mcporter resource commands when available and falls back to JSON-RPC `resources/read` for older mcporter versions. Bearer-auth tool calls fall back to JSON-RPC `tools/call` when the installed mcporter does not yet support HTTP headers on `mcporter call`.
+The flux/host checks assert the always-present fanout envelope keys rather than inner daemon data, so they pass whether or not the configured hosts are reachable. The resource suite prefers mcporter resource commands when available and falls back to JSON-RPC `resources/read` for older mcporter versions. Bearer-auth tool calls fall back to JSON-RPC `tools/call` when the installed mcporter does not yet support HTTP headers on `mcporter call`.
 
 ## Test philosophy
 
@@ -61,11 +64,11 @@ Use semantic assertions, not liveness-only checks:
 
 ```bash
 # Bad test — only proves MCP responded
-run_test "server info" "example" '{"action":"status"}'
+run_test "scout nodes" "scout" '{"action":"nodes"}'
 
-# Good test — proves the service actually returned real data
-run_test "status has version" "example" '{"action":"status"}' "version"
-run_test "echo roundtrip" "example" '{"action":"echo","message":"hello"}' "hello"
+# Good test — proves the service actually returned the right shape
+run_test "scout nodes returns hosts" "scout" '{"action":"nodes"}' "hosts"
+run_test_semantic "flux help tool name" "flux" '{"action":"help"}' "tool" "flux" "exact"
 ```
 
 A test that checks `is_error: false` is not a good test — it only verifies the MCP protocol layer responded. Semantic tests check that the actual service data is present and structurally correct.
@@ -90,13 +93,13 @@ assert node is not None and node != '' and node != [] and node != {}
 
 ## Resource validation
 
-MCP resources are public contract, not implementation detail. Test every stable resource URI:
+MCP resources are public contract, not implementation detail. Test every stable resource URI. For the schema resources (`synapse://schema/flux` and `synapse://schema/scout`, which both return the full tool-definitions array):
 
 - The resource URI resolves.
-- The returned content parses as JSON.
-- The tool name is `example`.
-- `inputSchema.type` is `object`.
-- `inputSchema.properties.action` exists.
+- The returned content parses as a JSON array.
+- The array contains tool definitions named `flux` and `scout`.
+- Each tool's `inputSchema.type` is `object`.
+- Each tool's `inputSchema.properties.action` exists.
 
 ## Generated CLIs
 

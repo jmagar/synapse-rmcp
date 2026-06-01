@@ -1,39 +1,45 @@
 #!/usr/bin/env bash
 # =============================================================================
-# test-mcp.sh — Integration smoke-test for the Example MCP server
+# test-mcp.sh — Integration smoke-test for the synapse2 MCP server
 #
-# TEMPLATE: Replace all occurrences of "example"/"Example"/"EXAMPLE" with your
-#           service name when adapting this for a real service.
+# synapse2 exposes two real MCP tools:
+#   flux   — Docker infrastructure (docker / container / host / compose) across
+#            configured hosts.
+#   scout  — SSH/local host inspection (nodes / peek / find / ps / df / delta /
+#            exec / emit / beam / zfs / logs).
 #
 # PHILOSOPHY — what makes a good integration test:
 #   A test that only checks "did it return JSON?" is NOT a good test.
-#   A test that checks "did greet with name='Alice' return a string containing
-#   'Alice'?" IS a good test — it proves semantic correctness, not just liveness.
+#   A test that checks the actual response *shape* — "did scout nodes return a
+#   `hosts` array?", "did flux docker info return the fanout envelope?" — IS a
+#   good test: it proves the contract, not just liveness.
 #
-#   This script demonstrates the pattern with four checks:
-#     greet(name="Alice")    → response MUST contain "Alice" in the greeting string
-#     echo(message="ping")   → response MUST echo back the exact string "ping"
-#     status()               → response MUST have a "status" key
-#     help()                 → response MUST have a "help" key with non-empty content
-#     schema resource        → MUST be valid JSON schema with name="example" and inputSchema
+#   This smoke-test only exercises READ-ONLY / non-destructive actions. The
+#   destructive actions (docker build/rmi/prune, container stop/recreate/exec,
+#   compose down/restart/recreate, scout exec/emit/beam) require elicitation
+#   confirmation and are intentionally never called here.
 #
-#   MCP elicitation actions (`elicit_name`, `scaffold_intent`) require a client
-#   that can render elicitation/create. mcporter HTTP smoke tests do not exercise
-#   that UI flow; fallback outcomes are covered by Rust tests below the live
-#   transport harness.
+#   Because Docker/SSH connectivity is environment-dependent, the flux/host
+#   checks assert the *always-present* fanout envelope keys (`count`, `partial`,
+#   and the per-action result list) rather than inner daemon data — so they pass
+#   whether the target hosts are reachable or not. `scout nodes` is the one
+#   data-level check that is safe everywhere: it reads host config only, no
+#   network. It asserts a `hosts` array is present (and, if the server has any
+#   hosts configured, non-empty).
 #
-#   TEMPLATE: Adapt these checks to your service's actual response shapes.
-#             Replace example-specific validation with your API's semantics.
-#             Add checks that prove your API data is real, e.g.:
-#               - For a Unraid MCP: verify hostname matches your server
-#               - For a metrics MCP: verify timestamps are recent (within 5m)
-#               - For a database MCP: verify row counts are > 0
+#   The checks performed:
+#     scout nodes                     → response has a `hosts` array
+#     flux docker info                → fanout envelope: `count` + `info` array + `partial`
+#     flux host status                → fanout envelope: `count` + `status` + `partial`
+#     flux help / scout help          → `.tool` == "flux"/"scout", `topics` present
+#     synapse://schema/flux  resource → array containing tools flux & scout w/ inputSchema
+#     synapse://schema/scout resource → same (both URIs return the full tool array)
 #
 # Server is assumed to be running as HTTP on localhost:40080 (the `just dev` port).
-# Credentials are sourced from ~/.claude-homelab/.env OR environment variables:
-#   EXAMPLE_MCP_HOST  (default: localhost)
-#   EXAMPLE_MCP_PORT  (default: 40080)
-#   EXAMPLE_MCP_TOKEN (optional; omit for no-auth dev mode)
+# Credentials are sourced from ~/.synapse2/.env OR environment variables:
+#   SYNAPSE_MCP_HOST  (default: localhost)
+#   SYNAPSE_MCP_PORT  (default: 40080)
+#   SYNAPSE_MCP_TOKEN (optional; omit for no-auth dev mode)
 #
 # Usage:
 #   ./tests/mcporter/test-mcp.sh [--timeout-ms N] [--parallel] [--verbose]
@@ -48,9 +54,9 @@
 #   1 — one or more tests failed
 #   2 — prerequisite check failed (mcporter not found, server unreachable)
 #
-# TEMPLATE: To add more actions, copy the pattern from suite_core below:
-#   run_test_semantic "label" "tool" '{"action":"your_action","arg":"val"}' \
-#     "response_key" "expected_substring_or_exact_value" "exact"
+# To add more actions, copy the pattern from suite_core below (read-only only):
+#   run_test "label" "flux" '{"action":"host","subaction":"uptime"}' "count"
+#   run_test_semantic "label" "flux" '{"action":"help"}' "tool" "flux" "exact"
 # =============================================================================
 
 set -uo pipefail
@@ -62,9 +68,8 @@ readonly SCRIPT_NAME="$(basename -- "${BASH_SOURCE[0]}")"
 readonly TS_START="$(date +%s%N)"
 readonly LOG_FILE="${TMPDIR:-/tmp}/${SCRIPT_NAME%.sh}.$(date +%Y%m%d-%H%M%S).log"
 
-# TEMPLATE: Change this path if your credentials live elsewhere.
-#           syslog-mcp uses ~/.claude-homelab/.env; adapt to your convention.
-readonly ENV_FILE="${HOME}/.claude-homelab/.env"
+# synapse2 stores credentials in its appdata dir (SERVICE_HOME_DIRNAME = .synapse2).
+readonly ENV_FILE="${HOME}/.synapse2/.env"
 
 # ── Colour support ────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -126,15 +131,13 @@ load_env() {
     log_warn "${ENV_FILE} not found — using environment variables"
   fi
 
-  # TEMPLATE: Replace EXAMPLE_MCP_HOST/PORT with your service's env var names.
-  local host="${EXAMPLE_MCP_HOST:-localhost}"
+  local host="${SYNAPSE_MCP_HOST:-localhost}"
   # Remap bind address 0.0.0.0 → localhost for outbound connections
   [[ "${host}" == "0.0.0.0" ]] && host="localhost"
-  local port="${EXAMPLE_MCP_PORT:-40080}"
+  local port="${SYNAPSE_MCP_PORT:-40080}"
   MCP_URL="http://${host}:${port}/mcp"
 
-  # TEMPLATE: Replace EXAMPLE_MCP_TOKEN with your service's token env var.
-  local token="${EXAMPLE_MCP_TOKEN:-}"
+  local token="${SYNAPSE_MCP_TOKEN:-}"
   MCPORTER_HEADER_ARGS=()
   if [[ -n "${token}" ]]; then
     MCPORTER_HEADER_ARGS+=(--header "Authorization: Bearer ${token}")
@@ -144,7 +147,7 @@ load_env() {
   if [[ ${#MCPORTER_HEADER_ARGS[@]} -gt 0 ]]; then
     log_info "Auth: Bearer token configured"
   else
-    log_info "Auth: none (EXAMPLE_MCP_TOKEN unset — server must be in no-auth mode)"
+    log_info "Auth: none (SYNAPSE_MCP_TOKEN unset — server must be in no-auth mode)"
   fi
 }
 
@@ -173,8 +176,7 @@ smoke_test_server() {
 
   if [[ "${health_status}" != "ok" ]]; then
     log_error "Health endpoint at ${base_url}/health did not return status=ok"
-    # TEMPLATE: Replace "example" with your service name in the diagnostic messages.
-    log_error "Is the example-mcp server running?  just dev   or   just docker-up"
+    log_error "Is the synapse2 server running?  just dev   or   just docker-up"
     log_error "Then retry:  ./tests/mcporter/test-mcp.sh"
     return 2
   fi
@@ -205,8 +207,8 @@ print(len(d.get('result', {}).get('tools', [])))
 }
 
 # ── mcporter wrappers ────────────────────────────────────────────────────────
-# Makes a single MCP tool call via mcporter and returns the JSON output.
-# TEMPLATE: Replace "example" tool name with your tool name.
+# Makes a single MCP tool call via mcporter (or JSON-RPC fallback) and returns
+# the JSON output. The synapse2 tools are `flux` and `scout`.
 mcporter_supports_headers() {
   mcporter call --help 2>/dev/null | grep -q -- '--header'
 }
@@ -383,9 +385,9 @@ except Exception as e:
 # This is the stronger test form — it validates that a specific field contains
 # an expected value, not just that the field exists.
 #
-# TEMPLATE: Use this for all checks where you can predict the response value.
-#           "does the response key exist?" is weak.
-#           "does the response value equal/contain X?" proves correctness.
+# Use this for all checks where you can predict the response value.
+#   "does the response key exist?" is weak.
+#   "does the response value equal/contain X?" proves correctness.
 #
 # Usage:
 #   run_test_semantic "label" "tool" '{"action":"..."}' \
@@ -476,17 +478,15 @@ _fail() {
 
 # =============================================================================
 # TEST SUITES
-# TEMPLATE: Rename these suites and adapt the test cases for your service.
 # =============================================================================
 
 # ── suite_auth ────────────────────────────────────────────────────────────────
 suite_auth() {
   printf '\n%b== auth enforcement ==%b\n' "${C_BOLD}" "${C_RESET}" | tee -a "${LOG_FILE}"
 
-  # TEMPLATE: Replace EXAMPLE_MCP_TOKEN with your token env var name.
-  if [[ -z "${EXAMPLE_MCP_TOKEN:-}" ]]; then
-    skip_test "auth: unauthenticated /mcp returns 401" "EXAMPLE_MCP_TOKEN unset"
-    skip_test "auth: bad token returns 401"             "EXAMPLE_MCP_TOKEN unset"
+  if [[ -z "${SYNAPSE_MCP_TOKEN:-}" ]]; then
+    skip_test "auth: unauthenticated /mcp returns 401" "SYNAPSE_MCP_TOKEN unset"
+    skip_test "auth: bad token returns 401"             "SYNAPSE_MCP_TOKEN unset"
     return
   fi
 
@@ -512,87 +512,109 @@ suite_auth() {
 }
 
 # ── suite_core ────────────────────────────────────────────────────────────────
-# TEMPLATE: This is the main test suite. Each test here is a semantic check —
-#           it verifies that the response contains the RIGHT data, not just JSON.
+# The main test suite. Each test is a semantic check against the real flux/scout
+# response shapes. Only READ-ONLY / non-destructive actions are exercised.
 #
-# Key pattern: run_test_semantic validates a specific field value.
-# Key principle: test the contract, not the implementation.
+# Connectivity note: flux docker/host actions fan out across configured hosts
+# and may have zero reachable daemons in a clean environment. The fanout
+# envelope keys (`count`, `partial`, and the per-action result list) are ALWAYS
+# present regardless of connectivity, so the assertions below check those rather
+# than inner daemon fields — they pass whether or not the hosts are up.
 suite_core() {
-  printf '\n%b== example tool — core actions ==%b\n' "${C_BOLD}" "${C_RESET}" | tee -a "${LOG_FILE}"
+  printf '\n%b== scout tool — read-only actions ==%b\n' "${C_BOLD}" "${C_RESET}" | tee -a "${LOG_FILE}"
 
-  # ── greet ───────────────────────────────────────────────────────────────────
-  # TEMPLATE: Replace "example" with your tool name, adapt the action and response.
+  # ── scout nodes ─────────────────────────────────────────────────────────────
+  # Pure config read (no network). Returns { "hosts": [ {name, protocol, ...} ] }.
+  # This is the one data-level check that is safe in any environment.
 
-  # Basic greet — check the key exists
-  run_test "example greet: returns greeting object" \
-    "example" '{"action":"greet"}' "greeting"
+  # The response MUST carry a `hosts` array.
+  run_test "scout nodes: returns hosts array" \
+    "scout" '{"action":"nodes"}' "hosts"
 
-  # Semantic check: greeting with name="Alice" MUST contain "Alice" in the response
-  # TEMPLATE: This is the gold standard test format.
-  #           Input: action=greet, name="Alice"
-  #           Expected: response.greeting contains "Alice"
-  #           Why: proves the name parameter is actually used, not ignored
-  run_test_semantic "example greet: name param reflected in response" \
-    "example" '{"action":"greet","name":"Alice"}' \
-    "greeting" "Alice" "contains"
+  # Stronger: the first host entry exists (proves at least one host is configured
+  # AND that hosts[] is a list, not a scalar). On a host-less deployment this
+  # fails meaning "no hosts configured", not "broken" — see header note.
+  run_test "scout nodes: at least one configured host" \
+    "scout" '{"action":"nodes"}' "hosts.0.name"
 
-  # The default target should be "World"
-  # TEMPLATE: Test documented defaults explicitly — they break silently otherwise.
-  run_test_semantic "example greet: default target is World" \
-    "example" '{"action":"greet"}' \
-    "target" "World" "exact"
+  # ── scout help ──────────────────────────────────────────────────────────────
+  # legacy_scout_help() returns { tool, actions, destructive, ..., topics, hint }.
 
-  # ── echo ────────────────────────────────────────────────────────────────────
-  # TEMPLATE: Echo-style operations are the simplest semantic test:
-  #           send value X, verify response contains exactly X.
+  run_test "scout help: returns help object" \
+    "scout" '{"action":"help"}' "tool"
 
-  # Basic echo key check
-  run_test "example echo: returns echo object" \
-    "example" '{"action":"echo","message":"ping"}' "echo"
+  # The tool name in the help payload must be exactly "scout".
+  run_test_semantic "scout help: tool field is scout" \
+    "scout" '{"action":"help"}' \
+    "tool" "scout" "exact"
 
-  # Semantic: the echoed value must match the input EXACTLY
-  # TEMPLATE: "contains" is too weak for echo — use "exact" to catch truncation bugs
-  run_test_semantic "example echo: exact message round-trip" \
-    "example" '{"action":"echo","message":"hello-mcporter-test-12345"}' \
-    "echo" "hello-mcporter-test-12345" "exact"
+  # The topic index must be present.
+  run_test "scout help: lists topics" \
+    "scout" '{"action":"help"}' "topics"
 
-  # ── status ──────────────────────────────────────────────────────────────────
-  # TEMPLATE: Replace this with your service's status/health action.
-  #           Add checks for fields your service actually returns.
+  printf '\n%b== flux tool — read-only actions ==%b\n' "${C_BOLD}" "${C_RESET}" | tee -a "${LOG_FILE}"
 
-  run_test "example status: returns status field" \
-    "example" '{"action":"status"}' "status"
+  # ── flux docker info ────────────────────────────────────────────────────────
+  # Fans out across all configured hosts (host omitted). flatten_scalar_outcome
+  # returns { "count": N, "info": [ {host, info} ], "partial": bool, "errors"?: }.
 
-  # The status value must be "ok" — not just present, but correct
-  # TEMPLATE: If your status action can return other values, adjust or skip this.
-  run_test_semantic "example status: status value is ok" \
-    "example" '{"action":"status"}' \
-    "status" "ok" "exact"
+  # The fanout envelope MUST carry `count` and the `info` result list.
+  run_test "flux docker info: fanout envelope has count" \
+    "flux" '{"action":"docker","subaction":"info"}' "count"
+  run_test "flux docker info: fanout envelope has info list" \
+    "flux" '{"action":"docker","subaction":"info"}' "info"
 
-  # ── help ────────────────────────────────────────────────────────────────────
-  # TEMPLATE: The help action should always return non-empty documentation.
-  #           This test proves the help text is actually served, not a 500 error.
+  # `partial` is always present in the fanout envelope (true/false).
+  run_test "flux docker info: fanout envelope has partial flag" \
+    "flux" '{"action":"docker","subaction":"info"}' "partial"
 
-  run_test "example help: returns help content" \
-    "example" '{"action":"help"}' ""
+  # ── flux host status ────────────────────────────────────────────────────────
+  # Fans out; flatten_scalar_outcome with key "status":
+  #   { "count": N, "status": [ ... ], "partial": bool }.
 
-  # Help should contain the action list — "greet" is always in the template
-  # TEMPLATE: Replace "greet" with a keyword that must appear in your help text.
-  run_test_semantic "example help: mentions greet action" \
-    "example" '{"action":"help"}' \
-    "help" "greet" "contains"
+  run_test "flux host status: fanout envelope has count" \
+    "flux" '{"action":"host","subaction":"status"}' "count"
+  run_test "flux host status: fanout envelope has status list" \
+    "flux" '{"action":"host","subaction":"status"}' "status"
+
+  # ── flux help ───────────────────────────────────────────────────────────────
+  # legacy_flux_help() returns { tool, actions, destructive, topics, hint }.
+
+  run_test "flux help: returns help object" \
+    "flux" '{"action":"help"}' "tool"
+
+  # The tool name in the help payload must be exactly "flux".
+  run_test_semantic "flux help: tool field is flux" \
+    "flux" '{"action":"help"}' \
+    "tool" "flux" "exact"
+
+  # Help must advertise the docker action group.
+  run_test "flux help: lists docker actions" \
+    "flux" '{"action":"help"}' "actions.docker"
 }
 
 # ── suite_schema_resource ──────────────────────────────────────────────────────
-# TEMPLATE: The schema resource is exposed by the rmcp-template as:
-#           example://schema/mcp-tool
-#           Replace "example" with your service name in the URI.
+# synapse2 exposes two schema resource URIs:
+#     synapse://schema/flux
+#     synapse://schema/scout
+# Both return the SAME full tool-definitions array (pretty-printed JSON):
+#     [ {name:"flux", inputSchema:{...}}, {name:"scout", inputSchema:{...}} ]
+# arriving as contents[0].text. So each URI is validated by checking the array
+# contains BOTH the flux and scout tool defs, each with inputSchema.properties.action.
 suite_schema_resource() {
-  printf '\n%b== schema resource ==%b\n' "${C_BOLD}" "${C_RESET}" | tee -a "${LOG_FILE}"
+  printf '\n%b== schema resources ==%b\n' "${C_BOLD}" "${C_RESET}" | tee -a "${LOG_FILE}"
 
-  # Fetch the schema resource via mcporter when supported. The wrapper falls
-  # back to raw JSON-RPC for older mcporter versions.
-  local resource_uri="example://schema/mcp-tool"
+  local resource_uri
+  for resource_uri in "synapse://schema/flux" "synapse://schema/scout"; do
+    check_schema_resource "${resource_uri}"
+  done
+}
+
+# Validate a single schema resource URI: it must resolve to a non-empty array
+# containing tool definitions named "flux" and "scout", each carrying an
+# inputSchema of type object with an "action" property.
+check_schema_resource() {
+  local resource_uri="${1:?resource URI required}"
   local output t0 elapsed_ms
 
   t0="$(date +%s%N)"
@@ -602,12 +624,14 @@ suite_schema_resource() {
   printf '%s\n' "${output}" >> "${LOG_FILE}"
   [[ "${VERBOSE}" == true ]] && printf '%s\n' "${output}"
 
+  local label="schema resource ${resource_uri}: array has flux+scout tools with inputSchema.action"
+
   if [[ -z "${output}" ]]; then
-    _fail "schema resource: fetch ${resource_uri}" "${elapsed_ms}" "empty response from resources/read"
+    _fail "${label}" "${elapsed_ms}" "empty response from resources/read"
     return 1
   fi
 
-  # Parse and validate the schema content
+  # Parse and validate the schema content.
   local schema_check
   schema_check="$(
     printf '%s' "${output}" | python3 -c "
@@ -616,42 +640,44 @@ try:
     outer = json.load(sys.stdin)
     # mcporter resource commands may return the resource JSON directly, while
     # JSON-RPC resources/read returns result.contents[0].text.
-    if isinstance(outer, dict) and 'name' in outer and 'inputSchema' in outer:
-        schema = outer
+    if isinstance(outer, list):
+        tools = outer
+    elif isinstance(outer, dict) and 'name' in outer and 'inputSchema' in outer:
+        tools = [outer]
     else:
         contents = outer.get('result', {}).get('contents', []) if isinstance(outer, dict) else []
         first = contents[0] if contents else {}
-        if isinstance(first, dict) and isinstance(first.get('json'), dict):
-            schema = first['json']
+        payload = None
+        if isinstance(first, dict) and first.get('json') is not None:
+            payload = first['json']
         else:
             text = first.get('text', '') if isinstance(first, dict) else ''
             if not text:
                 print('error: empty text in resource content')
                 sys.exit(0)
-            schema = json.loads(text)
+            payload = json.loads(text)
+        tools = payload if isinstance(payload, list) else [payload]
 
-    if isinstance(schema, list):
-        schema = schema[0] if schema else {}
-
-    # TEMPLATE: Replace 'example' with your tool name in these checks.
-    name = schema.get('name', '')
-    if name != 'example':
-        print('name mismatch: expected \"example\", got \"' + name + '\"')
+    if not tools:
+        print('error: schema array is empty')
         sys.exit(0)
 
-    if 'inputSchema' not in schema:
-        print('missing inputSchema in tool schema')
-        sys.exit(0)
-
-    input_schema = schema['inputSchema']
-    if input_schema.get('type') != 'object':
-        print('inputSchema.type should be object, got: ' + str(input_schema.get('type')))
-        sys.exit(0)
-
-    props = input_schema.get('properties', {})
-    if 'action' not in props:
-        print('inputSchema.properties should include \"action\"')
-        sys.exit(0)
+    by_name = {t.get('name'): t for t in tools if isinstance(t, dict)}
+    for expected in ('flux', 'scout'):
+        schema = by_name.get(expected)
+        if schema is None:
+            print('missing tool def: ' + expected + ' (got: ' + ','.join(sorted(by_name)) + ')')
+            sys.exit(0)
+        input_schema = schema.get('inputSchema')
+        if not isinstance(input_schema, dict):
+            print(expected + ': missing inputSchema')
+            sys.exit(0)
+        if input_schema.get('type') != 'object':
+            print(expected + ': inputSchema.type should be object, got ' + str(input_schema.get('type')))
+            sys.exit(0)
+        if 'action' not in input_schema.get('properties', {}):
+            print(expected + ': inputSchema.properties should include \"action\"')
+            sys.exit(0)
 
     print('ok')
 except Exception as e:
@@ -660,10 +686,9 @@ except Exception as e:
   )" || schema_check="parse_error"
 
   if [[ "${schema_check}" == "ok" ]]; then
-    _pass "schema resource: valid JSON schema with name=example and inputSchema" "${elapsed_ms}"
+    _pass "${label}" "${elapsed_ms}"
   else
-    _fail "schema resource: valid JSON schema with name=example and inputSchema" \
-      "${elapsed_ms}" "${schema_check}"
+    _fail "${label}" "${elapsed_ms}" "${schema_check}"
   fi
 }
 
@@ -737,8 +762,7 @@ main() {
   load_env
 
   printf '%b%s%b\n' "${C_BOLD}" "$(printf '=%.0s' {1..65})" "${C_RESET}"
-  # TEMPLATE: Replace "example-mcp" with your service name in this banner.
-  printf '%b  example-mcp integration smoke-test%b\n' "${C_BOLD}" "${C_RESET}"
+  printf '%b  synapse2 integration smoke-test (flux + scout)%b\n' "${C_BOLD}" "${C_RESET}"
   printf '%b  Project:  %s%b\n' "${C_BOLD}" "${PROJECT_DIR}" "${C_RESET}"
   printf '%b  MCP URL:  %s%b\n' "${C_BOLD}" "${MCP_URL}" "${C_RESET}"
   printf '%b  Timeout:  %dms/call | Parallel: %s%b\n' \
@@ -752,11 +776,10 @@ main() {
     log_error ""
     log_error "Server connectivity check failed. Aborting."
     log_error ""
-    # TEMPLATE: Replace port 40080 and service name in these diagnostic messages.
     log_error "To diagnose:"
-    log_error "  just dev                            # start in no-auth dev mode"
+    log_error "  just dev                             # start in no-auth dev mode"
     log_error "  curl http://localhost:40080/health   # check health endpoint"
-    log_error "  docker ps | grep example-mcp        # check Docker container"
+    log_error "  docker ps | grep synapse2            # check Docker container"
     exit 2
   }
 
