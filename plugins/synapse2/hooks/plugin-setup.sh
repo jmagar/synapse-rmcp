@@ -24,11 +24,11 @@ export_if_set() {
 }
 
 ensure_example_binary() {
-  if command -v synapse2 >/dev/null 2>&1; then
+  if command -v synapse >/dev/null 2>&1; then
     return 0
   fi
 
-  local bundled="${CLAUDE_PLUGIN_ROOT}/bin/synapse2"
+  local bundled="${CLAUDE_PLUGIN_ROOT}/bin/synapse"
   if [[ ! -x "${bundled}" ]]; then
     printf 'synapse2 plugin setup: bundled binary not found at %s\n' "${bundled}" >&2
     printf '  → run: just install   (builds release binary and copies to plugins/synapse2/bin/)\n' >&2
@@ -36,10 +36,10 @@ ensure_example_binary() {
   fi
 
   mkdir -p "${HOME}/.local/bin"
-  ln -sf "${bundled}" "${HOME}/.local/bin/synapse2"
+  ln -sf "${bundled}" "${HOME}/.local/bin/synapse"
   export PATH="${HOME}/.local/bin:${PATH}"
 
-  command -v synapse2 >/dev/null 2>&1 || {
+  command -v synapse >/dev/null 2>&1 || {
     printf 'synapse2 plugin setup: symlink created but synapse2 still not found in PATH\n' >&2
     printf '  → ensure %s is on your PATH\n' "${HOME}/.local/bin" >&2
     exit 1
@@ -64,7 +64,7 @@ main() {
   export SYNAPSE_HOME
 
   ensure_example_binary
-  synapse2 setup plugin-hook "$@"
+  synapse setup plugin-hook "$@"
 }
 
 main "$@"

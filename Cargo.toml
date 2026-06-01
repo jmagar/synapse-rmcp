@@ -15,7 +15,7 @@ members = [".", "xtask"]
 resolver = "2"
 
 [package]
-name = "synapse2"
+name = "synapse"
 version = "0.5.0"
 edition = "2021"
 rust-version = "1.90"
@@ -23,7 +23,7 @@ description = "Template for building MCP servers with the rmcp crate"
 autobins = false
 
 [[bin]]
-name = "synapse2"
+name = "synapse"
 path = "src/main.rs"
 
 [dependencies]

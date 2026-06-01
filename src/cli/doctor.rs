@@ -61,7 +61,7 @@ pub async fn run_doctor(config: &Config, json: bool) -> Result<()> {
     // ── 2. Binary in PATH ─────────────────────────────────────────────────────
     //
     // TEMPLATE: Replace "synapse2" with your binary name (Cargo.toml [[bin]] name).
-    checks.push(check_binary_in_path("synapse2"));
+    checks.push(check_binary_in_path("synapse"));
 
     // ── 3. MCP server port ────────────────────────────────────────────────────
     //

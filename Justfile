@@ -313,7 +313,7 @@ health:
 
 # Verify that the running Docker/systemd service matches the current artifact
 runtime-current:
-    bash scripts/check-runtime-current.sh --expected-binary target/release/synapse2
+    bash scripts/check-runtime-current.sh --expected-binary target/release/synapse
 
 # Smoke-test the protected MCP HTTP auth path (requires running bearer-auth server)
 auth-smoke:
@@ -346,13 +346,13 @@ build-plugin: build-release
     #!/bin/sh
     set -eu
     target_dir="${CARGO_TARGET_DIR:-target}"
-    if [ ! -x "${target_dir}/release/synapse2" ] && [ -x ".cache/cargo/release/synapse2" ]; then
+    if [ ! -x "${target_dir}/release/synapse" ] && [ -x ".cache/cargo/release/synapse" ]; then
         target_dir=".cache/cargo"
     fi
     mkdir -p bin plugins/synapse2/bin
-    install -m 755 "${target_dir}/release/synapse2" bin/synapse2
-    install -m 755 "${target_dir}/release/synapse2" plugins/synapse2/bin/synapse2
-    echo "Installed bin/synapse2 and plugins/synapse2/bin/synapse2"
+    install -m 755 "${target_dir}/release/synapse" bin/synapse
+    install -m 755 "${target_dir}/release/synapse" plugins/synapse2/bin/synapse
+    echo "Installed bin/synapse and plugins/synapse2/bin/synapse"
 
 # Install the release binary into bin/ (alias for build-plugin kept for compatibility)
 install: build-plugin
@@ -360,8 +360,8 @@ install: build-plugin
 # Install the release binary on the local PATH for runtime smoke testing
 install-local: build-release
     mkdir -p "${HOME}/.local/bin"
-    install -m 755 target/release/synapse2 "${HOME}/.local/bin/synapse2"
-    @echo "Installed ${HOME}/.local/bin/synapse2"
+    install -m 755 target/release/synapse "${HOME}/.local/bin/synapse"
+    @echo "Installed ${HOME}/.local/bin/synapse"
 
 # Validate all plugin manifests, MCP config, hooks, and skills
 validate-plugin:
