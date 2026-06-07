@@ -20,7 +20,7 @@ pub(super) fn action_surfaces(reporter: &mut PatternReporter) {
     }
 
     let schema = read_file("src/mcp/schemas.rs");
-    let tools = read_file("src/mcp/tools.rs");
+    let help = read_file("src/mcp/help.rs");
     let tests = read_file("tests/tool_dispatch.rs");
     let cli = read_file("src/cli.rs");
 
@@ -36,9 +36,7 @@ pub(super) fn action_surfaces(reporter: &mut PatternReporter) {
     };
     let missing_help = action_names
         .iter()
-        .filter(|action| {
-            !tools.contains(&format!("### {action}")) && !tools.contains(&format!("`{action}`"))
-        })
+        .filter(|action| !has_help_entry(&help, action))
         .cloned()
         .collect::<Vec<_>>();
     let missing_tests = action_names
@@ -72,7 +70,7 @@ pub(super) fn action_surfaces(reporter: &mut PatternReporter) {
         reporter.fail(
             "actions",
             format!(
-                "mcp/tools.rs HELP_TEXT missing action(s): {}. Hint: add `### <action>` docs to HELP_TEXT.",
+                "src/mcp/help.rs missing action help entry/entries: {}. Hint: add a topic-aware help entry or legacy help listing.",
                 missing_help.join(", ")
             ),
         );
@@ -108,6 +106,12 @@ pub(super) fn action_surfaces(reporter: &mut PatternReporter) {
             ),
         );
     }
+}
+
+fn has_help_entry(help: &str, action: &str) -> bool {
+    help.contains(&format!("\"{action}\""))
+        || help.contains(&format!("m.insert(\"{action}\""))
+        || help.contains(&format!("m.insert(\"{action}:"))
 }
 
 fn action_specs_body(text: &str) -> Option<&str> {

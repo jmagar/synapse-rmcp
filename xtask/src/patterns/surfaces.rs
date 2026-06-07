@@ -1,7 +1,10 @@
 use anyhow::Result;
 use std::path::Path;
 
-use super::{reporter::PatternReporter, util::read_file};
+use super::{
+    reporter::PatternReporter,
+    util::{is_test_file, read_file},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SurfaceKind {
@@ -24,8 +27,8 @@ const CORE_RUST_FORBIDDEN: &[&str] = &[
     "std::fs",
     "std::process::Command",
     "Command::new",
-    "ExampleClient::new",
-    "crate::example::ExampleClient",
+    "SynapseClient::new",
+    "crate::synapse::SynapseClient",
 ];
 
 const WEB_FORBIDDEN: &[&str] = &[
@@ -76,7 +79,7 @@ pub(super) fn thin_surfaces(reporter: &mut PatternReporter) -> Result<()> {
         reporter.fail(
             "surfaces",
             format!(
-                "business/IO logic appears in surface files: {}. Hint: CLI/API/MCP/web surfaces should parse inputs, delegate to ExampleService or API endpoints, and format responses only.",
+                "business/IO logic appears in surface files: {}. Hint: CLI/API/MCP/web surfaces should parse inputs, delegate to SynapseService or API endpoints, and format responses only.",
                 failures.join("; ")
             ),
         );
@@ -145,7 +148,7 @@ fn check_core_rust_surface(
 }
 
 fn core_token_applies(file: &SurfaceFile, token: &str) -> bool {
-    if file.path == "src/cli.rs" && matches!(token, "std::fs" | "ExampleClient::new") {
+    if file.path == "src/cli.rs" && matches!(token, "std::fs" | "SynapseClient::new") {
         return false;
     }
     true
@@ -215,6 +218,10 @@ fn surface_files() -> Result<Vec<SurfaceFile>> {
 }
 
 fn surface_file(path: &str) -> Option<SurfaceFile> {
+    if is_test_file(Path::new(path)) {
+        return None;
+    }
+
     let kind = if matches!(
         path,
         "src/api.rs"

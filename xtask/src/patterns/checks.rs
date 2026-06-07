@@ -11,7 +11,7 @@ use super::{
 };
 
 const REQUIRED_PATTERN_FILES: &[&str] = &[
-    "src/example.rs",
+    "src/synapse.rs",
     "src/app.rs",
     "src/actions.rs",
     "src/mcp.rs",
@@ -150,7 +150,7 @@ pub(super) fn thin_shims(reporter: &mut PatternReporter) {
         ),
         (
             "src/cli.rs",
-            &["ExampleService::new", "service."][..],
+            &["SynapseService::new", "service."][..],
             &["reqwest::", "hyper::Client", "sqlx::", "rusqlite::"][..],
         ),
     ];
@@ -172,7 +172,7 @@ pub(super) fn thin_shims(reporter: &mut PatternReporter) {
             reporter.warn(
                 "thin-shim",
                 format!(
-                    "{path} does not contain expected delegation token(s): {}. Hint: shims should parse inputs and delegate to ExampleService.",
+                    "{path} does not contain expected delegation token(s): {}. Hint: shims should parse inputs and delegate to SynapseService.",
                     missing.join(", ")
                 ),
             );

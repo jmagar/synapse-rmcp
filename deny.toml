@@ -57,10 +57,13 @@ allow-wildcard-paths = true
 
 # Crates we never want pulled in
 deny = [
-  # openssl (native) — this project uses rustls; openssl appearing means a dep
-  # silently pulled in native SSL. Use the rustls feature flag instead.
+  # openssl (native) — this project uses rustls for HTTP/TLS; openssl appearing
+  # as a high-level crate means a dependency silently pulled in native SSL.
+  #
+  # Do not ban openssl-sys here: ssh2-config uses git2/libgit2-sys as a build
+  # dependency for SSH config parsing tests, and libgit2-sys links through
+  # openssl-sys even though the runtime HTTP stack remains rustls-based.
   { name = "openssl" },
-  { name = "openssl-sys" },
 ]
 
 # Known duplicate version pairs that can't be resolved yet — remove when fixed
