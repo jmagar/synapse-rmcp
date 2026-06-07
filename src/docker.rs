@@ -2,6 +2,10 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::process::Command;
 
+#[cfg(test)]
+#[path = "docker_tests.rs"]
+mod tests;
+
 pub async fn docker_json(args: &[&str]) -> Result<Value> {
     let output = Command::new("docker").args(args).output();
     match output {

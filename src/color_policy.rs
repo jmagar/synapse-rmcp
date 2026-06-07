@@ -9,6 +9,10 @@ const COLOR_NEVER: u8 = 2;
 
 static COLOR_OVERRIDE: AtomicU8 = AtomicU8::new(COLOR_AUTO);
 
+#[cfg(test)]
+#[path = "color_policy_tests.rs"]
+mod tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorChoice {
     Auto,

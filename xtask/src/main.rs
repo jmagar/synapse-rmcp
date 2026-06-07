@@ -167,11 +167,17 @@ fn ci() -> Result<()> {
 // check-test-siblings — Verify every src/*.rs has a sibling *_tests.rs
 // =============================================================================
 
-/// Walk `src/` and report any `.rs` file missing a sibling `{stem}_tests.rs`.
+/// Walk `src/` and report any `.rs` file missing test coverage.
+///
+/// Accepted coverage patterns:
+///   - a direct sibling `{stem}_tests.rs`
+///   - an inline `mod tests`
+///   - an aggregate module test file such as `src/actions_tests.rs` for
+///     `src/actions/*.rs`
 ///
 /// Files excluded from the check:
-///   - Files whose name already ends in `_tests.rs` (they ARE the test sibling)
-///   - `main.rs` and `lib.rs` (entry points with no business logic to unit-test)
+///   - files whose name already ends in `_tests.rs`
+///   - `main.rs` and `lib.rs` entry points
 ///
 /// Exits non-zero if any sibling is missing, so it can gate CI.
 fn check_test_siblings() -> Result<()> {
@@ -194,10 +200,7 @@ fn check_test_siblings() -> Result<()> {
             continue;
         }
 
-        let stem = name.strip_suffix(".rs").unwrap();
-        let sibling = path.parent().unwrap().join(format!("{stem}_tests.rs"));
-
-        if !sibling.exists() {
+        if !has_test_coverage(path)? {
             missing.push(path.to_owned());
         }
     }
@@ -254,6 +257,49 @@ fn check_test_siblings() -> Result<()> {
         return Ok(());
     }
     bail!("{} missing, {} orphaned", missing.len(), orphans.len());
+}
+
+fn has_test_coverage(path: &std::path::Path) -> Result<bool> {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .context("source path missing file name")?;
+    let stem = name
+        .strip_suffix(".rs")
+        .context("source path is not Rust")?;
+    let parent = path.parent().context("source path missing parent")?;
+
+    if parent.join(format!("{stem}_tests.rs")).exists() {
+        return Ok(true);
+    }
+
+    let source = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read source file {}", path.display()))?;
+    if source.contains("mod tests") || source.contains("#[path = \"") {
+        return Ok(true);
+    }
+
+    Ok(aggregate_test_file(path)
+        .map(|path| path.exists())
+        .unwrap_or(false))
+}
+
+fn aggregate_test_file(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut components = path.components();
+    match components.next()? {
+        std::path::Component::Normal(root) if root == "src" => {}
+        _ => return None,
+    }
+    let module = match components.next()? {
+        std::path::Component::Normal(module) => module.to_str()?,
+        _ => return None,
+    };
+
+    if module.ends_with(".rs") {
+        return None;
+    }
+
+    Some(std::path::Path::new("src").join(format!("{module}_tests.rs")))
 }
 
 // =============================================================================

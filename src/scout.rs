@@ -6,6 +6,10 @@ use std::process::Command;
 use crate::host_config::HostRepository;
 use crate::synapse::{validate_command, validate_safe_path, HostConfig, HostProtocol};
 
+#[cfg(test)]
+#[path = "scout_tests.rs"]
+mod tests;
+
 pub fn nodes(repo: &dyn HostRepository) -> Result<Value> {
     let hosts = repo.load_hosts()?;
     Ok(json!({ "hosts": hosts }))
