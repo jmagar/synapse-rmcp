@@ -110,20 +110,40 @@ fi
 # TEMPLATE: Replace "gosu" with "gosu" if using a Debian-based image,
 #           or use "exec setpriv --reuid=1000 --regid=1000 --clear-groups" if
 #           neither gosu nor gosu is available.
-# TEMPLATE: This image uses Debian + gosu. For Alpine, replace "gosu" with "gosu".
+# ── Docker socket group ───────────────────────────────────────────────────────
+# When /var/run/docker.sock is bind-mounted (for the `flux` Docker tools), it is
+# typically owned by root:docker on the host. The service runs as UID 1000, so it
+# needs the socket's group as a supplementary group to reach the daemon. The GID
+# varies per host, so we detect it at runtime and (when present) drop privileges
+# with setpriv, setting UID/GID 1000 plus that supplementary group. setpriv needs
+# no writes to /etc, so this works under a read-only root filesystem. When there
+# is no socket (or setpriv is unavailable) we fall back to plain gosu 1000:1000.
+DOCKER_SOCK="${DOCKER_SOCK:-/var/run/docker.sock}"
+SOCK_GID=""
+if [ -S "${DOCKER_SOCK}" ]; then
+    SOCK_GID="$(stat -c '%g' "${DOCKER_SOCK}" 2>/dev/null || true)"
+fi
+
+# drop_exec: re-exec "$@" as UID/GID 1000, preserving the docker socket group.
+# `exec` is critical — it replaces the shell so the binary receives OS signals
+# (SIGTERM/SIGINT) directly and Docker can stop the container gracefully.
+drop_exec() {
+    if [ "$(id -u)" != "0" ]; then
+        exec "$@"
+    fi
+    if [ -n "${SOCK_GID}" ] && [ "${SOCK_GID}" != "0" ] && command -v setpriv >/dev/null 2>&1; then
+        exec setpriv --reuid 1000 --regid 1000 --groups "${SOCK_GID}" "$@"
+    fi
+    exec gosu 1000:1000 "$@"
+}
+
 # Passthrough: if the first argument is not a known subcommand (e.g. docker run ... bash),
-# exec it directly under gosu without prepending the binary.
+# exec it directly without prepending the binary.
 case "${1:-}" in
   serve|mcp|greet|echo|status|watch|doctor|setup|help|--help|-h|--version|"")
-    if [ "$(id -u)" = "0" ]; then
-      exec gosu 1000:1000 "${BINARY}" "$@"
-    fi
-    exec "${BINARY}" "$@"
+    drop_exec "${BINARY}" "$@"
     ;;
   *)
-    if [ "$(id -u)" = "0" ]; then
-      exec gosu 1000:1000 "$@"
-    fi
-    exec "$@"
+    drop_exec "$@"
     ;;
 esac

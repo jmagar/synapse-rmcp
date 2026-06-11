@@ -1,10 +1,16 @@
 //! Configuration structs for the Example MCP server.
 //!
-//! Values are loaded in priority order:
-//!   1. `config.toml` (checked in, defaults only — no secrets)
-//!   2. Environment variables (`SYNAPSE_MCP_*` for the server; host topology is
-//!      loaded separately in `host_config.rs` via `SYNAPSE_HOSTS_CONFIG` /
-//!      `SYNAPSE_CONFIG_FILE` / `~/.ssh/config`).
+//! Values are loaded in priority order (later sources override earlier ones):
+//!   1. `config.toml` — non-secret defaults (server config). Searched in the
+//!      service data dir (`/data` in Docker, `~/.synapse2` bare-metal) then the
+//!      current directory. See `config_search_dirs`.
+//!   2. `.env` — secrets, URLs, and runtime vars. Searched in the same dirs and
+//!      applied additively after `config.toml`.
+//!   3. Process environment variables (`SYNAPSE_MCP_*` / `SYNAPSE_API_*`) — the
+//!      final, highest-priority override.
+//!
+//! Host topology is loaded separately in `host_config.rs` via
+//! `SYNAPSE_HOSTS_CONFIG` / `SYNAPSE_CONFIG_FILE` / `~/.ssh/config`.
 
 use serde::{Deserialize, Serialize};
 
@@ -217,24 +223,13 @@ impl Config {
     pub fn load() -> anyhow::Result<Self> {
         let mut config = Config::default();
 
-        // Search for config.toml in priority order (§25: appdata convention):
-        //   1. ~/<SERVICE_HOME_DIRNAME>/config.toml  — user's persistent config (primary)
-        //   2. ./config.toml                         — local dev / Docker mount fallback
-        let candidate_paths = {
-            let mut paths = vec![];
-            if let Some(home) = std::env::var_os("HOME") {
-                paths.push(
-                    std::path::PathBuf::from(home)
-                        .join(SERVICE_HOME_DIRNAME)
-                        .join("config.toml"),
-                );
-            }
-            paths.push(std::path::PathBuf::from("config.toml"));
-            paths
-        };
-
-        for path in &candidate_paths {
-            match std::fs::read_to_string(path) {
+        // Search for config.toml in the service config dirs, first match wins.
+        // See `config_search_dirs` for the resolved precedence — critically this
+        // includes `/data` in Docker, which is where the `~/.synapse2` bind mount
+        // lands, so config dropped in the appdata dir is honored in-container.
+        for dir in config_search_dirs() {
+            let path = dir.join("config.toml");
+            match std::fs::read_to_string(&path) {
                 Ok(contents) => {
                     config = toml::from_str(&contents)
                         .map_err(|e| anyhow::anyhow!("Failed to parse {}: {e}", path.display()))?;
@@ -245,8 +240,8 @@ impl Config {
             }
         }
 
-        for path in dotenv_candidate_paths() {
-            apply_dotenv_file(&mut config, &path)?;
+        for dir in config_search_dirs() {
+            apply_dotenv_file(&mut config, &dir.join(".env"))?;
         }
 
         // Env overrides — SYNAPSE_MCP_* for server config, SYNAPSE_API_* for upstream
@@ -299,19 +294,23 @@ impl Config {
 
 // ── env helpers ───────────────────────────────────────────────────────────────
 
-fn dotenv_candidate_paths() -> Vec<std::path::PathBuf> {
-    let mut paths = Vec::new();
+/// Directories searched for `config.toml` and `.env`, in priority order:
+///   1. `SYNAPSE_HOME` (explicit override), if set.
+///   2. The service data dir — `/data` inside Docker (where the `~/.synapse2`
+///      bind mount lands) or `~/.synapse2` on bare-metal (`default_data_dir`).
+///   3. The current working directory — local dev / repo-root fallback.
+///
+/// First match wins for `config.toml`; `.env` files are applied additively in
+/// the same order (later files override earlier keys).
+fn config_search_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
     if let Some(home) = std::env::var_os("SYNAPSE_HOME") {
-        paths.push(std::path::PathBuf::from(home).join(".env"));
-    } else if let Some(home) = std::env::var_os("HOME") {
-        paths.push(
-            std::path::PathBuf::from(home)
-                .join(SERVICE_HOME_DIRNAME)
-                .join(".env"),
-        );
+        dirs.push(std::path::PathBuf::from(home));
+    } else if let Ok(data_dir) = default_data_dir() {
+        dirs.push(data_dir);
     }
-    paths.push(std::path::PathBuf::from(".env"));
-    paths
+    dirs.push(std::path::PathBuf::from("."));
+    dirs
 }
 
 fn apply_dotenv_file(config: &mut Config, path: &std::path::Path) -> anyhow::Result<()> {

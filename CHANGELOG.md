@@ -13,6 +13,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- TEMPLATE: Add changes here as you work. They move to a version section on release. -->
 
+### Fixed
+
+- **Config / `.env` are now honored inside Docker.** `Config::load` searched
+  `$HOME/.synapse2/` and the current directory, but the container bind-mounts the
+  appdata dir at `/data` (where `default_data_dir()` resolves in-container), so
+  the mounted `config.toml` / `.env` were never read. Loading now searches the
+  resolved service data dir (`/data` in Docker, `~/.synapse2` bare-metal, or
+  `SYNAPSE_HOME`) and the current directory — see `config_search_dirs`.
+
+### Changed
+
+- **SSH fleet auto-discovery works in Docker.** The image now sets
+  `HOME=/home/synapse` and creates `/home/synapse/.ssh`, and
+  `docker-compose.prod.yml` bind-mounts the operator's `~/.ssh` (read-only) there,
+  so hosts in `~/.ssh/config` are auto-discovered into the fleet (`host_config.rs`).
+- **`flux` Docker tools can reach the daemon.** `docker-compose.prod.yml` now
+  bind-mounts `/var/run/docker.sock` and adds `group_add: ["${DOCKER_GID:-999}"]`
+  so the UID-1000 service has the host's docker group. `entrypoint.sh` also detects
+  the socket GID and preserves it via `setpriv` when it performs the privilege drop.
+- **`.env.example` slimmed to secrets, URLs, and runtime vars only;** non-secret
+  server tuning is documented in `config.example.toml`, which now also explains
+  host-topology discovery from `~/.ssh/config`.
+
 ## [0.5.1] — 2026-06-06
 
 ### Added

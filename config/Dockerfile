@@ -108,8 +108,16 @@ RUN chmod +x /entrypoint.sh
 # TEMPLATE: Replace "example" with your service name for the user/group.
 RUN groupadd --gid 1000 synapse && \
     useradd --uid 1000 --gid synapse --no-create-home --shell /sbin/nologin synapse && \
-    mkdir -p /data && \
-    chown synapse:synapse /data
+    mkdir -p /data /home/synapse/.ssh && \
+    chown -R synapse:synapse /data /home/synapse && \
+    chmod 700 /home/synapse/.ssh
+
+# HOME must be set explicitly: the service user is created with --no-create-home
+# and neither gosu nor setpriv export HOME. Host topology auto-discovery in
+# host_config.rs resolves ~/.ssh/config relative to HOME, so a deployment that
+# bind-mounts the operator's SSH config (see docker-compose.prod.yml) lands it
+# at /home/synapse/.ssh and is discovered automatically.
+ENV HOME=/home/synapse
 
 # Default log level. Override with RUST_LOG env var in docker-compose or at runtime.
 ENV RUST_LOG=info

@@ -177,3 +177,22 @@ disable_static_token_with_oauth = true
 # claude.ai redirect URIs are included by default.
 # TEMPLATE: Add your MCP client's redirect URIs if they differ from claude.ai's.
 allowed_client_redirect_uris = []
+
+# ── Host topology (the SSH / Docker fleet) ────────────────────────────────────
+# Hosts are NOT defined in this file. They are loaded by src/host_config.rs in
+# precedence order (first non-empty explicit source wins; SSH config is additive):
+#
+#   1. SYNAPSE_HOSTS_CONFIG env — inline JSON array of host objects.
+#   2. SYNAPSE_CONFIG_FILE env  — path to a JSON file ({ "hosts": [ ... ] }).
+#   3. ./synapse.config.json, then ~/.config/synapse-mcp/config.json, etc.
+#   4. ~/.ssh/config            — AUTO-DISCOVERED. Every concrete (non-wildcard)
+#                                 Host block with a HostName becomes an SSH host,
+#                                 inheriting User / Port / IdentityFile. This is
+#                                 the recommended path: define your fleet once in
+#                                 ~/.ssh/config and Synapse picks it up.
+#   5. Built-in `local` host    — always appended (Docker over /var/run/docker.sock).
+#
+# In Docker, bind-mount the operator's SSH config so discovery works — the image
+# sets HOME=/home/synapse, so the mount target is /home/synapse/.ssh (see
+# docker-compose.prod.yml). The `local` Docker host additionally needs the daemon
+# socket bind-mounted and DOCKER_GID set (see .env.example).

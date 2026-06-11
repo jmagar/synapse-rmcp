@@ -46,12 +46,29 @@ services:
     ports:
       - "${SYNAPSE_MCP_HOST_PORT:-40080}:40080/tcp"
     volumes:
+      # Persistent appdata — config.toml, .env, auth.db, JWT key. The binary reads
+      # config.toml / .env from here (it maps to /data inside the container).
       - ${HOME}/.synapse2:/data
+      # Docker control plane for the `flux` tools.
+      # SECURITY: bind-mounting the daemon socket grants this container
+      # root-equivalent control of the host's Docker. Only enable on hosts you
+      # intend Synapse to manage. Comment out to disable all `flux` Docker
+      # operations (the `scout` SSH tools keep working).
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Operator SSH config + keys. Hosts are auto-discovered into the fleet from
+      # ~/.ssh/config (see src/host_config.rs); HOME=/home/synapse in the image,
+      # so the config must land at /home/synapse/.ssh. Mounted read-only.
+      - ${HOME}/.ssh:/home/synapse/.ssh:ro
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     user: "1000:1000"
+    # The docker socket is owned by root:docker on the host. Add that group so the
+    # UID-1000 service can reach the daemon. Set DOCKER_GID to your host's docker
+    # group id:  getent group docker | cut -d: -f3   (999 is a common default).
+    group_add:
+      - "${DOCKER_GID:-999}"
     read_only: true
     tmpfs:
       - /tmp
