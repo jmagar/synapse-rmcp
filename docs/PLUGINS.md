@@ -1,37 +1,35 @@
 # Plugin Surfaces
 
-This template ships one service plugin package with three host-specific entrypoints:
+Synapse2 ships one service plugin package with three host-specific entrypoints:
 
-- Claude Code: `plugins/example/.claude-plugin/plugin.json`
-- Codex: `plugins/example/.codex-plugin/plugin.json`
-- Gemini: `plugins/example/gemini-extension.json`
+- Claude Code: `plugins/synapse2/.claude-plugin/plugin.json`
+- Codex: `plugins/synapse2/.codex-plugin/plugin.json`
+- Gemini: `plugins/synapse2/gemini-extension.json`
 
 All three surfaces should describe the same MCP server, expose the same skills, and connect to the same HTTP MCP endpoint. The host manifests differ, but the service behavior should not.
 
 ## Layout
 
 ```text
-plugins/example/
+plugins/synapse2/
   .claude-plugin/
     plugin.json          # Claude Code manifest
   .codex-plugin/
     plugin.json          # Codex manifest
     README.md            # Codex manifest field reference
-  .mcp.json              # Shared Claude/Codex MCP connection config
+  mcp.json               # Shared Claude/Codex MCP connection config
   gemini-extension.json  # Gemini CLI extension manifest
   hooks/
     hooks.json           # Claude lifecycle hook declarations
     plugin-setup.sh      # Thin adapter to the binary setup command
   bin/
-    example             # Optional Git LFS-tracked plugin binary artifact
+    synapse             # Optional Git LFS-tracked plugin binary artifact
   skills/
-    example/
+    synapse2/
       SKILL.md           # Shared action documentation
-    scaffold-project/
-      SKILL.md           # Approval-first template adaptation handoff skill
 ```
 
-When adapting the template, rename `example`, `Example`, and `EXAMPLE` consistently across the package, then update host-specific display text and credentials.
+When changing the action surface, keep the plugin package, skill text, and manifests aligned with the Synapse2 binary and `flux`/`scout` tools.
 
 ## Shared Contract
 
@@ -49,7 +47,7 @@ Keep the plugin manifests thin. Runtime setup belongs in the service binary, not
 
 ## Claude Code
 
-Claude Code uses `plugins/example/.claude-plugin/plugin.json`.
+Claude Code uses `plugins/synapse2/.claude-plugin/plugin.json`.
 
 Responsibilities:
 
@@ -58,7 +56,7 @@ Responsibilities:
 - defines `userConfig` settings exposed in Claude Code
 - marks sensitive values with `sensitive: true`
 
-Claude-specific lifecycle hooks live in `plugins/example/hooks/hooks.json`. The default hooks are:
+Claude-specific lifecycle hooks live in `plugins/synapse2/hooks/hooks.json`. The default hooks are:
 
 | Hook | Trigger | Command |
 | --- | --- | --- |
@@ -81,12 +79,12 @@ The hook script may map `CLAUDE_PLUGIN_OPTION_*` values into runtime env vars, c
 
 ## Codex
 
-Codex uses `plugins/example/.codex-plugin/plugin.json`.
+Codex uses `plugins/synapse2/.codex-plugin/plugin.json`.
 
 Responsibilities:
 
 - identifies the plugin for Codex listings
-- points at shared `skills` and `.mcp.json`
+- points at shared `skills` and `mcp.json`
 - describes the interface shown in Codex UI
 - declares read/write capabilities
 - provides example prompts
@@ -105,11 +103,11 @@ Codex-specific fields to adapt:
 | `interface.defaultPrompt` | three realistic prompts |
 | `interface.brandColor` | service-appropriate hex color |
 
-See `plugins/example/.codex-plugin/README.md` for the full manifest field reference.
+See `plugins/synapse2/.codex-plugin/README.md` for the full manifest field reference.
 
 ## Gemini
 
-Gemini uses `plugins/example/gemini-extension.json`.
+Gemini uses `plugins/synapse2/gemini-extension.json`.
 
 Responsibilities:
 
@@ -148,9 +146,9 @@ The validator checks:
 
 - Claude, Codex, and Gemini manifests are valid JSON
 - plugin manifests do not contain a `version` field
-- manifests point to the shared `.mcp.json`, hooks, and skills paths
-- shared MCP config exposes the `example` HTTP server at `${user_config.server_url}/mcp`
-- Gemini config exposes the same `example` HTTP server at `${settings.server_url}/mcp`
+- manifests point to the shared `mcp.json`, hooks, and skills paths
+- shared MCP config exposes the `synapse2` HTTP server at `${user_config.server_url}/mcp`
+- Gemini config exposes the same `synapse2` HTTP server at `${settings.server_url}/mcp`
 - hook config runs `${CLAUDE_PLUGIN_ROOT}/hooks/plugin-setup.sh`
 - every skill has `name:` and `description:` frontmatter
 
@@ -161,12 +159,12 @@ template gates.
 
 ## Shared MCP Config
 
-Claude Code and Codex share `plugins/example/.mcp.json`:
+Claude Code and Codex share `plugins/synapse2/mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "example": {
+    "synapse2": {
       "type": "http",
       "url": "${user_config.server_url}/mcp",
       "headers": {
@@ -181,34 +179,36 @@ Gemini carries equivalent MCP config directly in `gemini-extension.json` because
 
 ## Skills
 
-`plugins/example/skills/example/SKILL.md` is shared across Claude, Codex, and Gemini. Every skill follows the three-tier fallback pattern — agents try each tier in order and stop when one works:
+`plugins/synapse2/skills/synapse2/SKILL.md` is shared across Claude, Codex, and Gemini. Every skill follows the three-tier fallback pattern — agents try each tier in order and stop when one works:
 
 ```markdown
-# example — Claude Code Skill
+# synapse2 — Claude Code Skill
 
-Use this skill whenever you need to query or manage the Example service.
+Use this skill whenever you need to query or manage Synapse2.
 
 ## Tier 1: MCP tool (preferred)
-Use when the example MCP server is configured in your agent.
+Use when the Synapse2 MCP server is configured in your agent.
 
-example(action="things")
-example(action="thing", id="abc123")
-example(action="help")          # always available, no auth required
+scout(action="nodes")
+flux(action="docker", subaction="info")
+scout(action="help")          # always available, no auth required
 
 ## Tier 2: CLI binary
 Use when MCP is unavailable but the binary is installed in $PATH.
 
-example things [--json]
-example thing <id> [--json]
-example status
+synapse scout nodes --json
+synapse flux docker info --json
+synapse doctor
 
-Env required: EXAMPLE_API_URL, EXAMPLE_API_KEY
+Env required for HTTP mode: SYNAPSE_MCP_TOKEN, SYNAPSE_MCP_HOST, SYNAPSE_MCP_PORT
 
 ## Tier 3: Direct API (last resort)
 Use when neither MCP nor CLI is available.
 
-curl -H "Authorization: Bearer $EXAMPLE_API_KEY" \
-     "$EXAMPLE_API_URL/things"
+curl -H "Authorization: Bearer $SYNAPSE_MCP_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"action":"scout.nodes","params":{}}' \
+     "http://${SYNAPSE_MCP_HOST:-127.0.0.1}:${SYNAPSE_MCP_PORT:-40080}/v1/synapse2"
 
 ## Gotchas
 - [service-specific pitfalls go here]
@@ -255,28 +255,26 @@ Keep version and metadata synchronized across:
 | File | Fields |
 | --- | --- |
 | `Cargo.toml` | package `version`, homepage/repository when present |
-| `plugins/example/.claude-plugin/plugin.json` | identity, repository, user config; no `version` field |
-| `plugins/example/.codex-plugin/plugin.json` | identity, repository, interface metadata; no `version` field |
-| `plugins/example/gemini-extension.json` | identity, repository, settings |
+| `plugins/synapse2/.claude-plugin/plugin.json` | identity, repository, user config; no `version` field |
+| `plugins/synapse2/.codex-plugin/plugin.json` | identity, repository, interface metadata; no `version` field |
+| `plugins/synapse2/gemini-extension.json` | identity, repository, settings |
 | `server.json` | package version and registry metadata, when present |
 
-`Cargo.toml` is the canonical version source for this template. Use
+`Cargo.toml` is the canonical version source. Use
 `scripts/bump-version.sh` to update Cargo and `server.json` together, then use
 `scripts/check-version-sync.sh` or `just pre-release` to verify that
 version-bearing files still agree. Plugin manifests should remain versionless.
 
-The template should not claim write capability unless the MCP server has real write actions. Read-only servers should use Codex `["Read"]` and avoid write-oriented sample prompts.
+Synapse2 has write-capable `flux` and `scout` actions guarded by confirmation. Keep Codex/Claude/Gemini capability claims synchronized with those guarded write paths.
 
 ## Adaptation Checklist
 
-When creating a real server from the template:
+When updating the Synapse2 plugin:
 
-1. Rename `example`, `Example`, and `EXAMPLE` across plugin files.
-2. Update all three manifests with the real repository, description, author, keywords, and capability claims.
+1. Update all three manifests with the current repository, description, author, keywords, and capability claims.
 3. Keep credential names aligned across Claude `userConfig`, Codex shared `.mcp.json`, and Gemini `settings`.
-4. Replace upstream credential fields such as `example_api_url` and `example_api_key`.
-5. Update `plugins/example/hooks/plugin-setup.sh` to map service-specific plugin options into env vars.
-6. Implement `<binary> setup plugin-hook`, `--no-repair`, `check`, and `repair`.
+4. Update `plugins/synapse2/hooks/plugin-setup.sh` to map service-specific plugin options into env vars.
+5. Keep `synapse setup plugin-hook`, `--no-repair`, `check`, and `repair` working.
 7. Update shared skill docs for the actual action surface.
 8. Replace Codex `defaultPrompt` entries with realistic prompts.
 9. Update Gemini `description`, `settings`, and `contextFileName` if needed.

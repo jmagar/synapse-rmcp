@@ -7,6 +7,7 @@ import { SubmitButton } from "@/components/tools/submit-button";
 import { Button } from "@/components/ui/button";
 import { callAction } from "@/lib/api";
 import {
+  type ActionParam,
   DEFAULT_REST_ACTION,
   REST_ACTIONS,
   type RestActionId,
@@ -21,6 +22,10 @@ export default function ToolsPage() {
   const [isError, setIsError] = useState(false);
 
   const action = REST_ACTIONS.find((a) => a.id === selectedAction) ?? DEFAULT_REST_ACTION;
+  const requestPreview = {
+    action: selectedAction,
+    params: buildParams(action.params, paramValues),
+  };
 
   const handleSelect = (id: RestActionId) => {
     setSelectedAction(id);
@@ -35,10 +40,7 @@ export default function ToolsPage() {
     setResponse(null);
     setIsError(false);
 
-    const params: Record<string, string> = {};
-    for (const [k, v] of Object.entries(paramValues)) {
-      if (v.trim()) params[k] = v.trim();
-    }
+    const params = buildParams(action.params, paramValues);
 
     const res = await callAction(selectedAction, params);
     setLoading(false);
@@ -245,11 +247,38 @@ export default function ToolsPage() {
                 whiteSpace: "pre-wrap",
               }}
             >
-              {`POST ${WEB_APP_CONFIG.restEndpoint}\nContent-Type: application/json\n\n${JSON.stringify({ action: selectedAction, params: Object.fromEntries(Object.entries(paramValues).filter(([, v]) => v.trim())) }, null, 2)}`}
+              {`POST ${WEB_APP_CONFIG.restEndpoint}\nContent-Type: application/json\n\n${JSON.stringify(requestPreview, null, 2)}`}
             </pre>
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+function buildParams(
+  params: readonly ActionParam[],
+  values: Record<string, string>,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+
+  for (const param of params) {
+    const raw = values[param.name] ?? "";
+    if (!raw.trim()) continue;
+
+    if (param.type === "checkbox") {
+      payload[param.name] = raw === "true";
+    } else if (param.type === "number") {
+      payload[param.name] = Number(raw);
+    } else if (param.type === "string-list") {
+      payload[param.name] = raw
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+    } else {
+      payload[param.name] = raw.trim();
+    }
+  }
+
+  return payload;
 }

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 
 interface ParamInputProps {
   id: string;
-  type?: string;
+  type?: "text" | "number" | "checkbox" | "string-list";
   placeholder?: string;
   value: string;
   onChange: (value: string) => void;
@@ -26,10 +26,23 @@ export function ParamInput({
   onChange,
   required,
 }: ParamInputProps) {
+  if (type === "checkbox") {
+    return (
+      <Input
+        id={id}
+        type="checkbox"
+        checked={value === "true"}
+        required={required}
+        onChange={(e) => onChange(e.target.checked ? "true" : "")}
+        className="h-4 w-4"
+      />
+    );
+  }
+
   return (
     <Input
       id={id}
-      type={type}
+      type={type === "number" ? "number" : "text"}
       placeholder={placeholder}
       value={value}
       required={required}

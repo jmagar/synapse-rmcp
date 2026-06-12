@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# install.sh — One-line installer for the Example MCP server
+# install.sh — One-line installer for Synapse2
 #
 # TEMPLATE: Replace the values in the "CONFIGURATION" section below with your
 #           service's actual binary name, URL, and version.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/your-org/your-repo/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/jmagar/synapse2/main/install.sh | bash
 #   # or locally:
 #   bash install.sh
 #
@@ -23,21 +23,21 @@ set -euo pipefail
 
 # ── CONFIGURATION — edit these values for your service ───────────────────────
 
-# TEMPLATE: Replace with your GitHub org/repo (e.g. "jmagar/myservice-mcp")
-REPO="your-org/example-mcp"
+# GitHub org/repo.
+REPO="jmagar/synapse2"
 
-# TEMPLATE: Replace with your binary name (matches Cargo.toml [[bin]] name)
-BINARY_NAME="example"
+# Binary name (matches Cargo.toml [[bin]] name).
+BINARY_NAME="synapse"
 
-# TEMPLATE: Replace with your service display name (shown in messages)
-SERVICE_NAME="example-mcp"
+# Service display name (shown in messages).
+SERVICE_NAME="Synapse2"
 
 # TEMPLATE: Set a pinned version, or leave as "latest" to always install the
 #           most recent release. Pinned is safer for production automation.
-VERSION="${EXAMPLE_MCP_VERSION:-latest}"
+VERSION="${SYNAPSE_VERSION:-latest}"
 
 # Install directory — default is ~/.local/bin (in PATH on most modern systems)
-INSTALL_DIR="${EXAMPLE_MCP_INSTALL_DIR:-${HOME}/.local/bin}"
+INSTALL_DIR="${SYNAPSE_INSTALL_DIR:-${HOME}/.local/bin}"
 
 # ── END CONFIGURATION ─────────────────────────────────────────────────────────
 
@@ -77,12 +77,7 @@ detect_platform() {
       ;;
   esac
 
-  # TEMPLATE: Adjust this naming convention to match your GitHub release asset names.
-  # Common patterns:
-  #   myservice-linux-x86_64.tar.gz
-  #   myservice-x86_64-unknown-linux-musl.tar.gz
-  #   myservice-aarch64-apple-darwin.tar.gz
-  PLATFORM="${os}-${arch}"
+  PLATFORM="${arch}"
   ARCHIVE_EXT="tar.gz"
   if [[ "${os}" == "macos" ]]; then
     ARCHIVE_EXT="tar.gz"
@@ -183,10 +178,10 @@ post_install_message() {
   printf '%b=== Next steps ===%b\n' "${C_BOLD}" "${C_RESET}"
   # TEMPLATE: Customize these instructions for your service.
   printf '  1. Copy the example config:   cp .env.example .env\n'
-  printf '  2. Edit .env and set:         EXAMPLE_API_URL, EXAMPLE_API_KEY\n'
+  printf '  2. Edit .env and set:         SYNAPSE_MCP_HOST, SYNAPSE_MCP_PORT\n'
   printf '  3. Generate an auth token:    openssl rand -hex 32\n'
   printf '  4. Start the server:          %s serve\n' "${BINARY_NAME}"
-  printf '  5. Check health:              curl http://localhost:3000/health\n'
+  printf '  5. Check health:              curl http://localhost:40080/health\n'
   printf '\n'
   printf '  Or deploy with Docker:        docker compose up -d\n'
   printf '\n'

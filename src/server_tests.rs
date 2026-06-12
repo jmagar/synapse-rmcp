@@ -57,6 +57,15 @@ fn non_loopback_bearer_token_mounts_bearer_policy() {
 }
 
 #[test]
+fn static_bearer_scopes_are_read_only() {
+    let scopes = static_bearer_scopes();
+    assert_eq!(scopes, vec![crate::actions::READ_SCOPE.to_owned()]);
+    assert!(!scopes
+        .iter()
+        .any(|scope| scope == crate::actions::WRITE_SCOPE));
+}
+
+#[test]
 fn non_loopback_oauth_mounts_oauth_policy() {
     let mut config = config("0.0.0.0");
     config.mcp.auth = AuthConfig {

@@ -2,20 +2,24 @@
 title: "Docker"
 doc_type: "guide"
 status: "active"
-owner: "rmcp-template"
+owner: "synapse2"
 audience:
   - "contributors"
   - "agents"
-scope: "template"
+scope: "synapse2"
 source_of_truth: false
 upstream_refs:
-  - "docs/PATTERNS.md"
-last_reviewed: "2026-05-15"
+  - "config/Dockerfile"
+  - "docker-compose.yml"
+  - "docker-compose.prod.yml"
+last_reviewed: "2026-06-12"
 ---
 
 # Docker
 
-Docker support lives in `config/Dockerfile` and `docker-compose.yml`.
+Synapse2 Docker support lives in `config/Dockerfile`, `docker-compose.yml`, and
+`docker-compose.prod.yml`. The image builds the Next.js static web export, embeds
+it in the Rust binary, and runs the `synapse` binary on port `40080`.
 
 ## Common commands
 
@@ -25,166 +29,95 @@ just docker-up         # start compose stack
 just docker-down       # stop stack
 just docker-rebuild    # rebuild image and recreate container
 just docker-logs       # follow logs
-just runtime-current   # compare running image with local compose image
+just runtime-current   # compare running service with the local binary
 ```
 
-## Dockerfile pattern
+## Image layout
+
+`config/Dockerfile` uses three stages:
+
+| Stage | Purpose |
+|---|---|
+| `web` | Build `apps/web/out` with pnpm. |
+| `builder` | Compile package `synapse2` and copy `target/release/synapse` to `/usr/local/bin/synapse`. |
+| `runtime` | Minimal Debian runtime with `curl`, `gosu`, `openssh-client`, and Docker CLI support. |
+
+The runtime image exposes `40080/tcp`, healthchecks `http://localhost:40080/health`,
+and starts with:
 
 ```dockerfile
-# syntax=docker/dockerfile:1.7
-FROM rust:1.90-slim-bookworm AS builder
-WORKDIR /app
-RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
-
-# Cache dependencies
-COPY Cargo.toml Cargo.lock ./
-RUN --mount=type=cache,id=example-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=example-cargo-target,target=/app/target,sharing=locked \
-    mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release --locked && rm -rf src
-
-# Build real binary
-COPY src/ src/
-RUN --mount=type=cache,id=example-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=example-cargo-target,target=/app/target,sharing=locked \
-    touch src/main.rs && cargo build --release --locked && \
-    cp target/release/example /usr/local/bin/example
-
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /usr/local/bin/example /usr/local/bin/example
-RUN groupadd --gid 1000 example && \
-    useradd --uid 1000 --gid example --no-create-home --shell /sbin/nologin example && \
-    mkdir -p /data && chown example:example /data
-
-USER 1000:1000
-EXPOSE 40080/tcp
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -sf http://localhost:40080/health || exit 1
-CMD ["example", "serve", "mcp"]
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["serve", "mcp"]
 ```
 
-## docker-compose.yml pattern
+`entrypoint.sh` fixes `/data` permissions, hardens `config.toml`, `.env`,
+`auth-jwt.pem`, and `auth.db`, then execs `/usr/local/bin/synapse` as UID 1000.
+
+## Compose service
+
+The local compose file extends the production service and builds `synapse2:dev`.
+The production service uses:
 
 ```yaml
 services:
-  example-mcp:
-    image: ghcr.io/jmagar/example-mcp:${VERSION:-latest}
-    build:
-      context: .
-      dockerfile: config/Dockerfile
-    container_name: example-mcp
-    restart: unless-stopped
+  synapse2:
+    image: synapse2:${SYNAPSE2_VERSION:-latest}
+    container_name: synapse2
     env_file:
       - path: .env
         required: false
     environment:
-      EXAMPLE_MCP_HOST: 0.0.0.0
-      EXAMPLE_MCP_PORT: "40080"
-      EXAMPLE_MCP_TOKEN: "${EXAMPLE_MCP_TOKEN:?set EXAMPLE_MCP_TOKEN or configure OAuth explicitly}"
+      SYNAPSE_MCP_HOST: 0.0.0.0
+      SYNAPSE_MCP_PORT: "40080"
+      SYNAPSE_MCP_TOKEN: "${SYNAPSE_MCP_TOKEN:-}"
     ports:
-      - "${EXAMPLE_MCP_HOST_PORT:-40080}:40080/tcp"
+      - "${SYNAPSE_MCP_HOST_PORT:-40080}:40080/tcp"
     volumes:
-      - ${HOME}/.example:/data
+      - ${HOME}/.synapse2:/data
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOME}/.ssh:/home/example/.ssh:ro
+      - ${HOME}/.ssh:/home/synapse/.ssh:ro
     user: "1000:1000"
     group_add:
       - "${DOCKER_GID:?set DOCKER_GID from: getent group docker | cut -d: -f3}"
-    networks:
-      - mcp
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:40080/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.5'
-
-networks:
-  mcp:
-    name: ${DOCKER_NETWORK:-example-mcp}
-    external: true
 ```
 
 Key requirements:
-- `container_name` must be unique across your stack.
-- Use the `${DOCKER_NETWORK:-mcp}` external network.
-- Require a bearer token by default for non-loopback HTTP; use trusted gateway
-  mode only when an upstream proxy is the only reachable path.
-- Require `DOCKER_GID` when mounting `/var/run/docker.sock`; a guessed default
-  lets the container start but leaves Docker operations broken.
-- Resource limits to prevent runaway memory on homelab.
 
-Create the network if it doesn't exist:
-
-```bash
-docker network create mcp
-```
+- Create the external Docker network first when needed: `docker network create mcp`.
+- Set `DOCKER_GID` when mounting `/var/run/docker.sock`; otherwise `flux` Docker
+  actions will not reach the daemon.
+- Set `SYNAPSE_MCP_TOKEN` for bearer deployments, or configure OAuth explicitly.
+- Mount `~/.ssh` read-only at `/home/synapse/.ssh` so `scout` host discovery can
+  read the operator SSH config.
 
 ## Appdata convention
 
-Local binary and Docker use the same data directory:
+Local binary and Docker share the same logical data directory:
 
 | Deployment | Data directory |
 |---|---|
-| Local binary | `~/.example/` |
-| Docker | `/data/` inside container, mounted from `~/.example/` on host |
-| Plugin | `$CLAUDE_PLUGIN_DATA` (symlinked to `~/.example/`) |
+| Local binary | `~/.synapse2/` |
+| Docker | `/data/` inside container, mounted from `~/.synapse2/` on host |
+| Plugin | `$CLAUDE_PLUGIN_DATA`, or `SYNAPSE_HOME` when explicitly set |
 
-```rust
-fn default_data_dir() -> PathBuf {
-    if std::path::Path::new("/.dockerenv").exists() {
-        return PathBuf::from("/data");
-    }
-    dirs::home_dir().unwrap_or_default().join(".example")
-}
-```
-
-## Docker entrypoint
-
-Every Docker image has an `entrypoint.sh` that runs as root, fixes permissions, validates required env vars, then drops to UID 1000:
-
-```bash
-#!/bin/sh
-set -e
-DATA_DIR="${DATA_DIR:-/data}"
-
-# Validate required vars before starting
-for var in EXAMPLE_API_URL EXAMPLE_API_KEY; do
-    eval "val=\${${var}:-}"
-    [ -z "${val}" ] && { echo "FATAL: ${var} is not set" >&2; exit 1; }
-done
-
-mkdir -p "${DATA_DIR}/logs"
-chown -R 1000:1000 "${DATA_DIR}"
-
-# Secure secret files
-for f in "${DATA_DIR}/.env" "${DATA_DIR}/auth-jwt.pem"; do
-    [ -f "${f}" ] && chmod 600 "${f}" || true
-done
-
-exec su-exec 1000:1000 "$@"
-```
-
-Key principles: fail fast, check every assumption, `exec` not `run` (so PID 1 is the actual service), no signal traps.
+`config.toml`, `.env`, OAuth state, and JWT signing keys belong in this data
+directory. Do not bake secrets into the image.
 
 ## Health and auth
 
-- Healthcheck probes `/health`.
-- `/mcp` requires auth outside loopback unless explicitly behind a trusted gateway.
-- Use `scripts/test-mcp-auth.sh` for bearer auth smoke tests.
-- Recreate (don't just restart) the container after editing `.env`:
+- `/health` is unauthenticated and used by Docker healthchecks.
+- `/mcp` and `/v1/synapse2` require auth outside loopback unless
+  `SYNAPSE_NOAUTH=true` is set for a trusted upstream gateway.
+- Recreate the container after editing `.env`:
 
 ```bash
 docker compose up -d --force-recreate
 ```
 
+Use `just auth-smoke` for a bearer-auth smoke test against a running server.
+
 ## Build artifacts
 
-`just build-plugin` copies the release binary to both `bin/example` and `plugins/example/bin/example`. The plugin binary path is allowlisted in `scripts/blob-size-allowlist.txt`.
-
-See `docs/PATTERNS.md` §14, §15, §25, §26, §50 for the full Dockerfile, compose, appdata, and entrypoint patterns.
+`just build-plugin` copies the release binary to `bin/synapse` and
+`plugins/synapse2/bin/synapse`. The runtime freshness check compares running
+processes against `target/release/synapse`.

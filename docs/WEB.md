@@ -2,15 +2,15 @@
 title: "Web UI"
 doc_type: "guide"
 status: "active"
-owner: "rmcp-template"
+owner: "synapse2"
 audience:
   - "contributors"
   - "agents"
-scope: "template"
-source_of_truth: false
+scope: "synapse2"
+source_of_truth: true
 upstream_refs:
   - "docs/PATTERNS.md"
-last_reviewed: "2026-05-22"
+last_reviewed: "2026-06-12"
 ---
 
 # Web UI
@@ -110,7 +110,7 @@ include_dir = { version = "0.7", optional = true }
 
 ## Runtime configuration
 
-`apps/web/lib/template.ts` defines the service display name, endpoints, and optional API base URL. `NEXT_PUBLIC_EXAMPLE_API_BASE_URL` should be empty by default so the UI uses same-origin API calls when served by the Rust binary.
+`apps/web/lib/template.ts` defines the service display name, endpoints, action catalog, and optional API base URL. `NEXT_PUBLIC_SYNAPSE_API_BASE_URL` should be empty by default so the UI uses same-origin API calls when served by the Rust binary.
 
 Use `apps/web/.env.example` for local web development overrides only.
 
@@ -131,7 +131,7 @@ const config = {
 The UI calls:
 - `/health`
 - `/status`
-- `/v1/example`
+- `/v1/synapse2`
 - `/mcp` for MCP clients rather than browser UI calls
 
 ## Aurora design system

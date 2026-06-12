@@ -58,7 +58,7 @@ Every error must answer four questions:
 
 | Field | Example |
 |---|---|
-| What failed | `"echo: message is required"` |
+| What failed | `"scout.peek: path is required"` |
 | The bad value | `"id=\"abc123\""` |
 | Why it failed | `"container may be stopped or removed"` |
 | How to fix | `"use action=help to see required parameters"` |
@@ -79,8 +79,8 @@ Never return opaque `"internal error"` messages. Never leak secrets in error tex
 Agents may use:
 
 1. **MCP tool calls** through `/mcp` or stdio (preferred — full tool schema, scope enforcement)
-2. **CLI commands** for local shell workflows (`example greet --name Alice`)
-3. **REST `/v1/example`** when MCP tooling is unavailable (`POST {"action":"greet","params":{"name":"Alice"}}`)
+2. **CLI commands** for local shell workflows (`synapse scout nodes --json`)
+3. **REST `/v1/synapse2`** when MCP tooling is unavailable (`POST {"action":"scout.nodes","params":{}}`)
 4. **Plugin skills** as human/agent guidance
 
 The action metadata in `src/actions.rs` keeps these surfaces aligned. Every action that the MCP tool exposes must also be reachable from the CLI (with the exception of MCP-only features like elicitation).
@@ -89,14 +89,14 @@ The action metadata in `src/actions.rs` keeps these surfaces aligned. Every acti
 
 ```
 # Default: summary view (fits on screen)
-$ example things
+$ synapse scout nodes
   ID   NAME               STATE    UPDATED
   42   my-thing           active   2m ago
   43   other-thing        idle     1h ago
 
 # Full detail: --verbose or specific action
-$ example thing 42
-$ example thing 42 --json
+$ synapse scout peek --host dookie --path /etc/hostname
+$ synapse scout peek --host dookie --path /etc/hostname --json
 ```
 
 ## Documentation contract

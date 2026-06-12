@@ -1,21 +1,11 @@
 # =============================================================================
 # .github/workflows/docker-publish.yml — Build and publish Docker image
 #
-# TEMPLATE substitutions required:
-#   REPO_NAME    → your GitHub repo name (e.g. "myservice-mcp")
-#   IMAGE_NAME   → your Docker image name (e.g. "myservice-mcp")
-#   BINARY_NAME  → your binary name from Cargo.toml [[bin]] (e.g. "myservice")
-#   PORT         → your service port (e.g. 6970 for unraid, 9158 for gotify)
-#
-# Replace every occurrence of "rmcp-template", "example-mcp", and "example"
-# in this file with your actual values.
-#
 # Triggers:
 #   - push to main → builds and pushes :latest tag
 #   - push of v* tag → builds and pushes :<version> tag + GitHub Release assets
 #
-# Registry: ghcr.io/jmagar/<IMAGE_NAME>
-# TEMPLATE: Replace "jmagar" with your GitHub org/username.
+# Registry: ghcr.io/jmagar/synapse2
 # =============================================================================
 
 name: Docker Publish
@@ -26,8 +16,7 @@ on:
     tags: ["v*"]
 
 env:
-  # TEMPLATE: Replace "jmagar/example-mcp" with "your-org/your-image-name"
-  IMAGE_NAME: ghcr.io/jmagar/example-mcp
+  IMAGE_NAME: ghcr.io/jmagar/synapse2
 
 jobs:
   docker:
@@ -61,7 +50,6 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          # TEMPLATE: Replace "example-mcp" with your image name.
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
@@ -100,8 +88,7 @@ jobs:
       - name: Run Trivy
         uses: aquasecurity/trivy-action@76071ef0d7ec797419534a0b350d16c55eb73629 # 0.31.0
         with:
-          # TEMPLATE: Replace with your image name.
-          image-ref: ghcr.io/jmagar/example-mcp:latest
+          image-ref: ghcr.io/jmagar/synapse2:latest
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH

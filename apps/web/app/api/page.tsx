@@ -126,12 +126,12 @@ export default function ApiPage() {
             </thead>
             <tbody>
               {[
-                ["MCP", `${WEB_APP_CONFIG.serviceName}(action="greet", name="Alice")`],
+                ["MCP", 'flux(action="docker", subaction="df") / scout(action="nodes")'],
                 [
                   "REST",
-                  `POST ${WEB_APP_CONFIG.restEndpoint} {"action":"greet","params":{"name":"Alice"}}`,
+                  `POST ${WEB_APP_CONFIG.restEndpoint} {"action":"flux.docker.df","params":{}}`,
                 ],
-                ["CLI", `${WEB_APP_CONFIG.serviceName} greet --name Alice`],
+                ["CLI", `${WEB_APP_CONFIG.serviceName} flux docker df`],
               ].map(([surface, pattern]) => (
                 <tr
                   key={surface}

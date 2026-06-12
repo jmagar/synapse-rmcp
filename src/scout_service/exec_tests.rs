@@ -259,6 +259,87 @@ async fn emit_returns_partial_success_on_mixed() {
     assert!(result["results"].is_array(), "results must be an array");
 }
 
+#[tokio::test]
+async fn emit_local_target_path_sets_working_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let target_path = dir.path().to_string_lossy().into_owned();
+    let target = super::EmitTarget {
+        host: HostConfig::local(),
+        path: Some(target_path.clone()),
+    };
+
+    let result: serde_json::Value = super::emit(
+        &[target],
+        Arc::new(AlwaysOkExec),
+        &ApproveConfirmer,
+        "pwd",
+        &[],
+        Some(5),
+    )
+    .await
+    .expect("local emit with path should succeed");
+
+    assert_eq!(result["status"], "all_ok");
+    let result_entry = &result["results"][0]["result"];
+    assert_eq!(result_entry["path"], target_path);
+    assert_eq!(result_entry["stdout"].as_str().unwrap().trim(), target_path);
+}
+
+#[tokio::test]
+async fn emit_remote_target_path_is_explicit_error() {
+    let mut host = HostConfig::local();
+    host.name = "ssh-remote".into();
+    host.host = "remote.example".into();
+    host.protocol = crate::synapse::HostProtocol::Ssh;
+    let target = super::EmitTarget {
+        host,
+        path: Some("/tmp".into()),
+    };
+
+    let result: serde_json::Value = super::emit(
+        &[target],
+        Arc::new(AlwaysOkExec),
+        &ApproveConfirmer,
+        "pwd",
+        &[],
+        Some(5),
+    )
+    .await
+    .expect("remote target path should be reported as a per-host emit failure");
+
+    assert_eq!(result["status"], "all_failed");
+    assert_eq!(result["failed"], 1u64);
+    let error = result["results"][0]["error"].as_str().unwrap();
+    assert!(
+        error.contains("only supported for local emit targets"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn emit_rejects_unsafe_target_path_before_confirmation() {
+    let target = super::EmitTarget {
+        host: HostConfig::local(),
+        path: Some("relative".into()),
+    };
+
+    let result: anyhow::Result<serde_json::Value> = super::emit(
+        &[target],
+        Arc::new(AlwaysOkExec),
+        &DenyConfirmer,
+        "pwd",
+        &[],
+        Some(5),
+    )
+    .await;
+
+    assert!(result.is_err(), "unsafe target paths must be rejected");
+    assert!(
+        result.unwrap_err().to_string().contains("absolute"),
+        "path validation should run before confirmation"
+    );
+}
+
 // ─── beam tests ──────────────────────────────────────────────────────────────
 
 #[tokio::test]

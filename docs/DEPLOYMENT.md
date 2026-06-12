@@ -2,18 +2,18 @@
 title: "Deployment"
 doc_type: "guide"
 status: "active"
-owner: "rmcp-template"
+owner: "synapse2"
 audience:
   - "contributors"
   - "agents"
-scope: "template"
-source_of_truth: false
-last_reviewed: "2026-05-15"
+scope: "synapse2"
+source_of_truth: true
+last_reviewed: "2026-06-12"
 ---
 
 # Deployment
 
-This template supports three deployment modes:
+Synapse2 supports three deployment modes:
 
 1. **Local development** with `just dev`.
 2. **Docker Compose** with `just docker-up`.
@@ -25,12 +25,12 @@ Every server binary exposes exactly two server modes and a CLI:
 
 | Command | Mode | Description |
 |---|---|---|
-| `example mcp` | stdio MCP | For Claude Code `~/.claude/settings.json` stdio servers |
-| `example serve` | Streamable HTTP MCP | For Docker/remote deployment |
-| `example [subcommand]` | CLI | Direct API access; all subcommands support `--json` |
-| `example doctor` | Pre-flight check | Validates environment and config |
-| `example --help` | Help | Print usage |
-| `example --version` | Version | Print version |
+| `synapse mcp` | stdio MCP | For Claude Code `~/.claude/settings.json` stdio servers |
+| `synapse serve` | Streamable HTTP MCP | For Docker/remote deployment |
+| `synapse [subcommand]` | CLI | Direct `flux`/`scout` operations; all subcommands support `--json` |
+| `synapse doctor` | Pre-flight check | Validates environment and config |
+| `synapse --help` | Help | Print usage |
+| `synapse --version` | Version | Print version |
 
 ## Deployment checklist
 
@@ -51,7 +51,7 @@ Every server binary exposes exactly two server modes and a CLI:
    ```
 6. Smoke-test auth:
    ```bash
-   EXAMPLE_MCP_TOKEN=<token> just auth-smoke
+   SYNAPSE_MCP_TOKEN=<token> just auth-smoke
    ```
 7. Run MCP integration tests:
    ```bash
@@ -72,7 +72,7 @@ fn is_containerized() -> bool {
 fn resolve_data_dir(config_path: Option<&str>) -> PathBuf {
     if let Some(p) = config_path { return PathBuf::from(p); }
     if is_containerized() { return PathBuf::from("/data"); }
-    dirs::home_dir().unwrap_or_default().join(".example")
+    dirs::home_dir().unwrap_or_default().join(".synapse2")
 }
 
 fn resolve_bind_host(configured: &str) -> &str {
@@ -86,18 +86,18 @@ All deployments share `~/.<service>` as the logical data root:
 
 | Deployment | Data directory |
 |---|---|
-| Local binary | `~/.example/` |
-| Docker | `/data/` in container, mounted from `~/.example/` on host |
-| Plugin | `$CLAUDE_PLUGIN_DATA` (symlinked to `~/.example/`) |
+| Local binary | `~/.synapse2/` |
+| Docker | `/data/` in container, mounted from `~/.synapse2/` on host |
+| Plugin | `$CLAUDE_PLUGIN_DATA` (symlinked to `~/.synapse2/`) |
 
 ## Auth expectations
 
 Non-loopback HTTP deployments must use bearer auth or OAuth. The server refuses to bind to a non-loopback address without authentication unless explicitly configured:
 
-- Loopback bind or `EXAMPLE_MCP_NO_AUTH=true` → `LoopbackDev` (no auth)
+- Loopback bind or `SYNAPSE_MCP_NO_AUTH=true` → `LoopbackDev` (no auth)
 - Non-loopback + bearer token → mounted bearer auth
 - Non-loopback + `auth_mode=oauth` → mounted OAuth auth
-- Non-loopback + `EXAMPLE_NOAUTH=true` → `TrustedGatewayUnscoped` (trusted gateway, explicit opt-out)
+- Non-loopback + `SYNAPSE_NOAUTH=true` → `TrustedGatewayUnscoped` (trusted gateway, explicit opt-out)
 - Non-loopback + no credentials + no gateway acknowledgment → startup error
 
 ## Claude Code stdio config
@@ -105,9 +105,9 @@ Non-loopback HTTP deployments must use bearer auth or OAuth. The server refuses 
 ```json
 {
   "mcpServers": {
-    "example": {
+    "synapse2": {
       "type": "stdio",
-      "command": "example",
+      "command": "synapse",
       "args": ["mcp"]
     }
   }
@@ -121,7 +121,7 @@ The binary must be in `$PATH`. The plugin's `plugin-setup.sh` symlinks it to `~/
 - `/health` is public and fast.
 - `/status` is public but redacted.
 - `/mcp` is the Streamable HTTP MCP endpoint.
-- `/v1/example` is the REST action endpoint.
+- `/v1/synapse2` is the REST action endpoint.
 
 ## Port assignments
 
@@ -137,9 +137,9 @@ Each service in the rmcp family uses a fixed port to avoid collisions:
 | unifi-mcp (rustifi) | 7474 | `unifi` |
 | tailscale-mcp (rustscale) | 7575 | `tailscale` |
 | apprise-mcp | 8765 | `apprise` |
-| rmcp-template | 40080 | `example` |
+| synapse2 | 40080 | `synapse` |
 
-Set the port via `EXAMPLE_MCP_PORT` or in `config.toml`. Update `EXPOSE` in the Dockerfile and the port mapping in `docker-compose.yml` to match.
+Set the port via `SYNAPSE_MCP_PORT` or in `config.toml`. Update `EXPOSE` in the Dockerfile and the port mapping in `docker-compose.yml` to match.
 
 ## Worktree file propagation
 

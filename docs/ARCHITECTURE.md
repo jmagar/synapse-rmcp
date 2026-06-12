@@ -2,39 +2,54 @@
 title: "Architecture"
 doc_type: "guide"
 status: "active"
-owner: "rmcp-template"
+owner: "synapse2"
 audience:
   - "contributors"
   - "agents"
-scope: "template"
+scope: "synapse2"
 source_of_truth: false
 upstream_refs:
-  - "docs/PATTERNS.md"
-last_reviewed: "2026-05-15"
+  - "src/actions.rs"
+  - "docs/API.md"
+last_reviewed: "2026-06-12"
 ---
 
 # Architecture
 
-`rmcp-template` is a Rust template for MCP servers built on `rmcp`. The architecture is intentionally layered so transports stay thin and business logic stays testable.
+Synapse2 is a Rust MCP + CLI server for local infrastructure workflows. It
+exposes two MCP tools:
+
+- `flux` for Docker, container, compose, and host status actions.
+- `scout` for SSH-backed node discovery, filesystem inspection, process/log/ZFS
+  introspection, and gated exec/emit/beam actions.
+
+The architecture is intentionally layered so transports stay thin and business
+logic stays testable.
 
 ## Layer diagram
 
 ```
-ExampleClient  (src/example.rs)   → HTTP/API transport ONLY — network calls, no logic
-ExampleService (src/app.rs)       → ALL business logic, validation, enrichment
-MCP shim       (src/mcp/tools.rs) → parse JSON args → call service → return Value
+SynapseService (src/app.rs)          → thin facade over domain services
+FluxService    (src/flux_service.rs) → Docker/container/compose/host logic
+ScoutService   (src/scout_service.rs) → SSH/filesystem/process/log/ZFS logic
+MCP shims      (src/mcp/tools.rs) → parse JSON args → call service → return Value
 CLI shim       (src/cli.rs)       → parse argv → call service → print
 REST shim      (src/api.rs)       → parse HTTP JSON → call service → return JSON
 ```
 
-**The golden rule:** If you are writing business logic in `mcp/tools.rs`, `cli.rs`, or `main.rs`, you are doing it wrong. Move it to `app.rs`.
+**The golden rule:** if you are writing business logic in `mcp/tools.rs`,
+`cli.rs`, `api.rs`, or `main.rs`, move it to the service layer.
 
 ## Module layout
 
 ```
 src/
-  <service>.rs      ← HTTP/API transport ONLY (no business logic)
-  app.rs            ← ALL business logic, validation, transformations
+  app.rs            ← SynapseService facade; no domain accumulation
+  flux_service.rs   ← FluxService domain entry point
+  flux_service/     ← focused Docker/container/compose/host modules
+  scout_service.rs  ← ScoutService domain entry point
+  scout_service/    ← focused SSH/filesystem/process/log/ZFS modules
+  host_config.rs    ← shared host topology repository
   config.rs         ← Config structs + env overrides
   api.rs            ← REST API handlers (api_dispatch, health, status)
   server.rs         ← AppState, AuthPolicy, build_auth_layer
@@ -62,10 +77,12 @@ src/
 
 | File | Responsibility |
 |---|---|
-| `src/example.rs` | Upstream/client transport stub. Replace with your service API client. |
-| `src/app.rs` | Service layer. All business rules live here. |
+| `src/app.rs` | Thin `SynapseService` facade over the domain services. |
+| `src/flux_service.rs` | `FluxService` implementation for Docker, container, compose, and host actions. |
+| `src/scout_service.rs` | `ScoutService` implementation for SSH, filesystem, process, log, and ZFS actions. |
+| `src/host_config.rs` | Shared host topology loading from `SYNAPSE_HOSTS_CONFIG`, `SYNAPSE_CONFIG_FILE`, and `~/.ssh/config`. |
 | `src/actions.rs` | Canonical action metadata, parsing, REST dispatch helpers. |
-| `src/mcp/tools.rs` | MCP tool dispatch and elicitation-only actions. |
+| `src/mcp/tools.rs` | MCP `flux` and `scout` tool dispatch plus elicitation-gated actions. |
 | `src/mcp/schemas.rs` | Tool input schema generated from action metadata. |
 | `src/mcp/rmcp_server.rs` | `ServerHandler`, scope enforcement, tools/resources/prompts. |
 | `src/server.rs` | Axum server startup, auth policy resolution, app state. |
@@ -80,11 +97,13 @@ src/
 pub struct AppState {
     pub config: McpConfig,        // MCP server config (host, port, auth settings)
     pub auth_policy: AuthPolicy,  // LoopbackDev | Mounted
-    pub service: ExampleService,  // The service layer — everything routes through here
+    pub service: SynapseService,  // Thin facade over FluxService + ScoutService
 }
 ```
 
-`AppState` is cloned per-request by the RMCP framework. Keep it cheap to clone — the service wraps an `Arc`-backed `reqwest::Client` internally.
+`AppState` is cloned per-request by the RMCP framework. Keep it cheap to clone:
+the service facade and its domain services are cloneable handles over shared
+state.
 
 ## Route composition
 
@@ -94,8 +113,8 @@ All surfaces (MCP, REST API, web UI) share **one binary on one port**:
 Port 40080
   ├── /mcp                  → Streamable HTTP MCP transport
   ├── /health               → Unauthenticated liveness probe
-  ├── /status               → Runtime state (auth required)
-  ├── /v1/example           → REST API action dispatch
+  ├── /status               → Public redacted runtime state
+  ├── /v1/synapse2          → REST API action dispatch
   ├── /.well-known/*        → OAuth metadata (when auth_mode=oauth)
   └── /*                    → SPA fallback (serves embedded web UI)
 ```
@@ -108,7 +127,7 @@ pub fn router(state: AppState) -> Router {
         .route("/status", get(status));
 
     let api = Router::new()
-        .route("/v1/example", post(api_dispatch))
+        .route("/v1/synapse2", post(api_dispatch))
         .route_layer(auth_layer.clone());
 
     let mcp = Router::new()
@@ -128,8 +147,8 @@ pub fn router(state: AppState) -> Router {
 `src/cli.rs` follows the same shim discipline as `mcp/tools.rs`. The canonical shape:
 
 ```rust
-// cli.rs — binary module (uses `example_mcp::` not `crate::`)
-use example_mcp::app::ExampleService;
+// cli.rs — binary module
+use synapse2::app::SynapseService;
 
 pub enum CliCommand {
     Things,
@@ -149,13 +168,13 @@ impl CliCommand {
             ["things"]         => Self::Things,
             ["thing", id, ..]  => Self::Thing { id: id.to_string() },
             ["delete", id, ..] => Self::DeleteThing { id: id.to_string(), confirm },
-            other => bail!("unknown command: {}\n\nRun `example --help`", other.join(" ")),
+            other => bail!("unknown command: {}\n\nRun `synapse --help`", other.join(" ")),
         };
         Ok((cmd, json))
     }
 }
 
-pub async fn run(service: &ExampleService, cmd: CliCommand, json: bool) -> Result<()> {
+pub async fn run(service: &SynapseService, cmd: CliCommand, json: bool) -> Result<()> {
     let (label, data) = match cmd {
         CliCommand::Things                            => ("things", service.list_things().await?),
         CliCommand::Thing { ref id }                  => ("thing",  service.get_thing(id).await?),
@@ -213,8 +232,8 @@ Zero validation, zero defaults, zero error message crafting in shims. All of tha
 
 - Shims do not contain business logic.
 - All action metadata starts in `src/actions.rs`.
-- Read actions require `example:read`; write actions require `example:write`; `help` is public.
+- Read actions require `synapse:read`; write/destructive actions require `synapse:write`; `help` is public.
 - Stdio is local trusted transport; HTTP is protected unless in loopback or explicit trusted-gateway mode.
-- Plugin setup is binary-owned: hook scripts delegate to `example setup plugin-hook`.
+- Plugin setup is binary-owned: hook scripts delegate to `synapse setup plugin-hook`.
 
 See `docs/PATTERNS.md` §1, §7, §A1, §45 for full pattern details.

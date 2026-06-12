@@ -2,20 +2,20 @@
 title: "Observability"
 doc_type: "guide"
 status: "active"
-owner: "rmcp-template"
+owner: "synapse2"
 audience:
   - "contributors"
   - "agents"
-scope: "template"
-source_of_truth: false
+scope: "synapse2"
+source_of_truth: true
 upstream_refs:
   - "docs/PATTERNS.md"
-last_reviewed: "2026-05-15"
+last_reviewed: "2026-06-12"
 ---
 
 # Observability
 
-The template exposes fast, redacted status surfaces for humans, agents, and deployment automation. Design principle: glass house, not black box.
+Synapse2 exposes fast, redacted status surfaces for humans, agents, and deployment automation. Design principle: glass house, not black box.
 
 ## HTTP endpoints
 
@@ -25,7 +25,7 @@ The template exposes fast, redacted status surfaces for humans, agents, and depl
 | `GET /status` | Public | Local redacted runtime metadata. |
 | `GET /metrics` | Bearer | Prometheus-compatible metrics (optional). |
 | `/mcp` | Auth policy | MCP Streamable HTTP endpoint. |
-| `/v1/example` | Auth policy | REST action dispatch. |
+| `/v1/synapse2` | Auth policy | REST action dispatch. |
 
 `/health` must remain fast (no database calls). Return HTTP 200 even when upstream is down — use `"status": "degraded"` to signal partial failure.
 
@@ -48,7 +48,7 @@ The template exposes fast, redacted status surfaces for humans, agents, and depl
 ```json
 {
   "status": "ok",
-  "server": "example-mcp",
+  "server": "synapse2",
   "version": "0.1.0",
   "transport": "http"
 }
@@ -58,7 +58,7 @@ Omit secrets, credentials, upstream URLs, and upstream health details from the p
 
 ## MCP status action
 
-`action="status"` is a read-scoped business action and may expose service status data appropriate for authenticated MCP/REST action callers. Keep it redacted, but do not assume it has the same contract as the public `/status` route.
+`scout` and `flux` read actions may expose service or host status data appropriate for authenticated MCP/REST action callers. Keep them redacted, but do not assume they have the same contract as the public `/status` route.
 
 ## Logging
 
@@ -67,12 +67,12 @@ Two destinations simultaneously — console and file:
 | Destination | Format | Writer |
 |---|---|---|
 | Console (stderr) | Human-readable, Aurora colors | `tracing_subscriber::fmt` with `AuroraFormatter` |
-| File (`~/.example/logs/example.log`) | Structured JSON | `tracing_subscriber::fmt::json()` |
+| File (`~/.synapse2/logs/synapse.log`) | Structured JSON | `tracing_subscriber::fmt::json()` |
 
 Use `RUST_LOG` to control log level:
 
 ```bash
-RUST_LOG=info,rmcp=warn example serve
+RUST_LOG=info,rmcp=warn synapse serve
 ```
 
 Log file: one file, 10 MB cap. On overflow, truncate and restart. Never multiple files.
@@ -82,14 +82,14 @@ Aurora console color palette (ANSI 256): `SERVICE_NAME=211` (pink), `ACCENT_PRIM
 Console log format:
 
 ```
-2026-05-13T14:32:05Z  INFO  MCP tool call  tool=example  action=greet  elapsed_ms=12
-2026-05-13T14:32:15Z ERROR  upstream failed  action=echo  error="connection refused"
+2026-06-12T14:32:05Z  INFO  MCP tool call  tool=scout  action=nodes  elapsed_ms=12
+2026-06-12T14:32:15Z ERROR  upstream failed  tool=flux  action=docker.info  error="connection refused"
 ```
 
 File log format:
 
 ```json
-{"timestamp":"2026-05-13T14:32:05Z","level":"INFO","message":"MCP tool call","tool":"example","action":"greet","elapsed_ms":12}
+{"timestamp":"2026-06-12T14:32:05Z","level":"INFO","message":"MCP tool call","tool":"scout","action":"nodes","elapsed_ms":12}
 ```
 
 ## Tracing spans

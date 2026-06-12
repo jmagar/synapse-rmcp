@@ -46,6 +46,31 @@ run_check() {
   fi
 }
 
+run_packaging_identity_check() {
+  local failed=0
+
+  grep -q 'BINARY_NAME: synapse' .github/workflows/release.yml || {
+    printf 'release workflow must package the synapse binary\n' >&2
+    failed=1
+  }
+  grep -q 'IMAGE_NAME: ghcr.io/jmagar/synapse2' .github/workflows/docker-publish.yml || {
+    printf 'Docker workflow must publish ghcr.io/jmagar/synapse2\n' >&2
+    failed=1
+  }
+  grep -q 'image-ref: ghcr.io/jmagar/synapse2:latest' .github/workflows/docker-publish.yml || {
+    printf 'Trivy scan must target ghcr.io/jmagar/synapse2:latest\n' >&2
+    failed=1
+  }
+
+  if grep -E 'your-org/example-mcp|BINARY_NAME="example"|EXAMPLE_MCP_|localhost:3000' install.sh; then
+    printf 'install.sh still contains template identity values\n' >&2
+    failed=1
+  fi
+
+  return "$failed"
+}
+
+run_check "packaging identity" run_packaging_identity_check
 run_check "PATTERNS.md contracts" cargo xtask patterns
 run_check "plugin layout" just validate-plugin
 run_check "schema docs" python3 scripts/check-schema-docs.py --check

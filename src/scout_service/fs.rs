@@ -7,6 +7,9 @@
 //!
 //! `delta` content mode is capped at 1 MB to prevent diffing large blobs.
 
+use std::fs::File;
+use std::io::Read;
+
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
 
@@ -20,6 +23,13 @@ use crate::synapse::{validate_scout_read_path, HostConfig};
 
 /// Maximum inline content size for `delta` content mode.
 pub const DELTA_MAX_CONTENT_BYTES: usize = 1024 * 1024; // 1 MB
+
+/// Maximum bytes read from a file for `peek`.
+///
+/// `peek` is a preview action, so this is an IO cap, not only a response cap.
+/// It leaves room below the global 40 KB MCP response safety net for JSON and
+/// markdown framing.
+pub const PEEK_MAX_CONTENT_BYTES: usize = 32 * 1024;
 
 // ─── peek ────────────────────────────────────────────────────────────────────
 
@@ -62,15 +72,23 @@ fn peek_local(host: &HostConfig, path: &str) -> Result<Value> {
             .collect();
         Ok(json!({ "host": host.name, "path": path, "kind": "directory", "entries": entries }))
     } else {
-        let content = std::fs::read_to_string(path)?;
-        Ok(json!({ "host": host.name, "path": path, "kind": "file", "content": content }))
+        let (content, truncated) = read_local_preview(path, PEEK_MAX_CONTENT_BYTES)?;
+        Ok(json!({
+            "host": host.name,
+            "path": path,
+            "kind": "file",
+            "content": content,
+            "truncated": truncated,
+            "size_bytes": meta.len(),
+            "max_content_bytes": PEEK_MAX_CONTENT_BYTES,
+        }))
     }
 }
 
 async fn peek_remote(host: &HostConfig, executor: &dyn SshExecutor, path: &str) -> Result<Value> {
     // Try stat to determine file vs directory.
-    let stat_out = executor.exec(host, "stat", &["-c", "%F", path]).await?;
-    let kind = stat_out.stdout.trim();
+    let stat_out = executor.exec(host, "stat", &["-c", "%F\t%s", path]).await?;
+    let (kind, size_bytes) = parse_stat_kind_size(stat_out.stdout.trim());
 
     if kind == "directory" {
         // List the directory with ls -1A.
@@ -84,12 +102,49 @@ async fn peek_remote(host: &HostConfig, executor: &dyn SshExecutor, path: &str) 
             .collect();
         Ok(json!({ "host": host.name, "path": path, "kind": "directory", "entries": entries }))
     } else {
-        // Read the file with cat.
-        let out = executor.exec(host, "cat", &[path]).await?;
+        let byte_count = (PEEK_MAX_CONTENT_BYTES + 1).to_string();
+        let out = executor
+            .exec(host, "head", &["-c", &byte_count, path])
+            .await?;
         if !out.stderr.is_empty() && out.exit_code != Some(0) {
             bail!("peek: {}", out.stderr.trim());
         }
-        Ok(json!({ "host": host.name, "path": path, "kind": "file", "content": out.stdout }))
+        let (content, truncated) = truncate_preview(out.stdout, PEEK_MAX_CONTENT_BYTES);
+        Ok(json!({
+            "host": host.name,
+            "path": path,
+            "kind": "file",
+            "content": content,
+            "truncated": truncated || size_bytes.is_some_and(|size| size > PEEK_MAX_CONTENT_BYTES as u64),
+            "size_bytes": size_bytes,
+            "max_content_bytes": PEEK_MAX_CONTENT_BYTES,
+        }))
+    }
+}
+
+fn read_local_preview(path: &str, max_bytes: usize) -> Result<(String, bool)> {
+    let mut reader = File::open(path)?.take((max_bytes + 1) as u64);
+    let mut content = String::new();
+    reader.read_to_string(&mut content)?;
+    Ok(truncate_preview(content, max_bytes))
+}
+
+fn truncate_preview(mut content: String, max_bytes: usize) -> (String, bool) {
+    if content.len() <= max_bytes {
+        return (content, false);
+    }
+    let mut boundary = max_bytes;
+    while !content.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    content.truncate(boundary);
+    (content, true)
+}
+
+fn parse_stat_kind_size(output: &str) -> (&str, Option<u64>) {
+    match output.split_once('\t') {
+        Some((kind, size)) => (kind, size.parse().ok()),
+        None => (output, None),
     }
 }
 

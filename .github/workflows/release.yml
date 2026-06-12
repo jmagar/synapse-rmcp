@@ -27,8 +27,7 @@ on:
     tags: ["v*"]
 
 env:
-  # TEMPLATE: Replace "example" with your binary name.
-  BINARY_NAME: example
+  BINARY_NAME: synapse
 
 jobs:
   # ── Build release binaries ────────────────────────────────────────────────────

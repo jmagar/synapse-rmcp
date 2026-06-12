@@ -24,7 +24,7 @@ bash tests/mcporter/test-mcp.sh
 just template-check
 
 # Protected MCP auth smoke (requires running bearer-auth server)
-EXAMPLE_MCP_TOKEN=<token> just auth-smoke
+SYNAPSE_MCP_TOKEN=<token> just auth-smoke
 
 # Full release-readiness gate
 scripts/pre-release-check.sh
@@ -42,9 +42,9 @@ Add tests here when adding or changing CLI flags.
 
 ### `tool_dispatch.rs` — Service/action behavior
 
-Tests MCP action behavior below HTTP. These use `rmcp_template::testing::loopback_state()` and the stub `ExampleClient`, so no real credentials or upstream service are required.
+Tests MCP action behavior below HTTP. These use `rmcp_template::testing::loopback_state()`, so no real credentials, Docker daemon, or SSH target is required for the covered shim behavior.
 
-Current checks assert semantic behavior for `greet`, `echo`, `status`, schema/action exposure, and all non-elicitation actions returning JSON objects.
+Current checks assert semantic behavior for help, representative `flux`/`scout` read-only action families, destructive confirmation gating, schema/action exposure, and validation errors.
 
 > Template rule: add one semantic test per business action. Assert response values, not only JSON validity.
 
@@ -89,7 +89,7 @@ bash tests/mcporter/test-mcp.sh --verbose
 
 # Default target is http://localhost:40080/mcp (the `just dev` port).
 # Override target when testing another deployment:
-EXAMPLE_MCP_HOST=127.0.0.1 EXAMPLE_MCP_PORT=3100 bash tests/mcporter/test-mcp.sh
+SYNAPSE_MCP_HOST=127.0.0.1 SYNAPSE_MCP_PORT=3100 bash tests/mcporter/test-mcp.sh
 ```
 
 Prerequisites:
@@ -105,9 +105,9 @@ Suites:
 
 | Suite | What it validates |
 |---|---|
-| `suite_auth` | Missing and bad bearer tokens return `401` when `EXAMPLE_MCP_TOKEN` is set. |
-| `suite_core` | `greet`, `echo`, `status`, and `help` return semantically correct values. |
-| `suite_schema_resource` | `example://schema/mcp-tool` resolves and contains a valid tool schema with `inputSchema.properties.action`. |
+| `suite_auth` | Missing and bad bearer tokens return `401` when `SYNAPSE_MCP_TOKEN` is set. |
+| `suite_core` | Read-only `flux`/`scout` actions and help return semantically correct values. |
+| `suite_schema_resource` | `synapse://schema/flux` and `synapse://schema/scout` resolve and contain valid tool schemas with `inputSchema.properties.action`. |
 
 The script logs all calls to `/tmp/test-mcp.<timestamp>.log`.
 
@@ -131,7 +131,7 @@ The stub client points at `http://localhost:1/stub`, so service-layer tests rema
 ## Design principles
 
 - **Semantic assertions:** check correct data, not just parseable JSON.
-- **Explicit defaults:** assert documented defaults like `greet` target `World`.
+- **Explicit defaults:** assert documented defaults and safe no-network envelopes.
 - **Layered coverage:** parse CLI in CLI tests, service logic in service tests, HTTP behavior in route/live tests.
 - **Auth-aware:** auth tests skip or adjust when credentials are intentionally absent.
 - **Resource coverage:** MCP resources are part of the public contract and should be tested alongside tools.

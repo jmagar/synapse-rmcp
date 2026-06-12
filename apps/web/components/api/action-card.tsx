@@ -6,6 +6,7 @@ export function ActionCard({ action }: { action: (typeof ACTIONS)[number] }) {
   const curlExample = `curl -X POST http://localhost:3100${WEB_APP_CONFIG.restEndpoint} \\
   -H "Content-Type: application/json" \\
   -d '${JSON.stringify(action.example)}'`;
+  const mcpExample = mcpEquivalent(action.id, action.example.params);
 
   return (
     <div
@@ -76,7 +77,7 @@ export function ActionCard({ action }: { action: (typeof ACTIONS)[number] }) {
               }}
             >
               <span style={{ color: "var(--aurora-accent-pink)" }}>{p.name}</span>
-              <span style={{ color: "var(--aurora-text-muted)" }}>string</span>
+              <span style={{ color: "var(--aurora-text-muted)" }}>{paramTypeLabel(p.type)}</span>
               {!p.required && (
                 <span style={{ color: "var(--aurora-warn)", fontSize: "0.7rem" }}>optional</span>
               )}
@@ -99,14 +100,34 @@ export function ActionCard({ action }: { action: (typeof ACTIONS)[number] }) {
             code={`${action.id} is MCP-only because it requires an interactive MCP peer.`}
           />
         )}
-        <CodeBlock
-          label="MCP equivalent"
-          code={`${WEB_APP_CONFIG.serviceName}(action="${action.id}"${action.params
-            .map((p) => `, ${p.name}="..."`)
-            .join("")})`}
-        />
+        <CodeBlock label="MCP equivalent" code={mcpExample} />
         <CodeBlock label="Response" code={JSON.stringify(action.response, null, 2)} />
       </div>
     </div>
   );
+}
+
+function paramTypeLabel(type: (typeof ACTIONS)[number]["params"][number]["type"]) {
+  if (type === "string-list") return "string[]";
+  if (type === "checkbox") return "boolean";
+  return type;
+}
+
+function mcpEquivalent(actionId: string, params: Record<string, unknown>) {
+  if (actionId === "help") return 'flux(action="help") or scout(action="help")';
+
+  const [domain, action, subaction] = actionId.split(".");
+  const args = Object.entries(params)
+    .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+    .join(", ");
+
+  if (domain === "flux" && action && subaction) {
+    return `flux(action="${action}", subaction="${subaction}"${args ? `, ${args}` : ""})`;
+  }
+
+  if (domain === "scout" && action) {
+    return `scout(action="${action}"${args ? `, ${args}` : ""})`;
+  }
+
+  return `${WEB_APP_CONFIG.serviceName}(action="${actionId}")`;
 }

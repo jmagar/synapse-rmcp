@@ -13,7 +13,7 @@ use std::{borrow::Cow, sync::Arc, time::Instant};
 use lab_auth::AuthContext;
 use rmcp::{
     model::{
-        CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams, GetPromptResult,
+        CallToolRequestParams, CallToolResult, GetPromptRequestParams, GetPromptResult,
         Implementation, ListPromptsResult, ListResourcesResult, ListToolsResult,
         PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult, ServerCapabilities,
         ServerInfo, Tool,
@@ -23,14 +23,19 @@ use rmcp::{
 };
 use serde_json::{Map, Value};
 
-use crate::{
-    actions::{required_scope_for_parsed_action, SynapseAction},
-    token_limit,
-};
+use crate::actions::{required_scope_for_parsed_action, SynapseAction};
 
 use crate::server::{AppState, AuthPolicy};
 
-use super::{prompts, resources, schemas::tool_definitions, tools::execute_tool};
+use super::{
+    prompts, resources,
+    response::{render_mcp_tool_output, tool_result_from_text, validate_response_format_arg},
+    schemas::tool_definitions,
+    tools::execute_tool,
+};
+
+#[cfg(test)]
+use super::response::tool_result_from_json;
 
 // ── server ────────────────────────────────────────────────────────────────────
 
@@ -273,43 +278,6 @@ fn rmcp_tool_from_json(value: Value) -> Result<Tool, ErrorData> {
         description,
         Arc::new(input_schema),
     ))
-}
-
-#[cfg(test)]
-fn tool_result_from_json(value: Value) -> Result<CallToolResult, ErrorData> {
-    // Compact JSON (not pretty) recovers ~30-40% of the 40 KB token budget.
-    let text = serde_json::to_string(&value)
-        .map_err(|e| ErrorData::internal_error(format!("serialization error: {e}"), None))?;
-    let text = token_limit::truncate_if_needed(&text);
-    Ok(CallToolResult::success(vec![Content::text(text)]))
-}
-
-fn tool_result_from_text(text: String) -> Result<CallToolResult, ErrorData> {
-    let text = token_limit::truncate_if_needed(&text);
-    Ok(CallToolResult::success(vec![Content::text(text)]))
-}
-
-fn render_mcp_tool_output(tool_name: &str, args: &Value, value: &Value) -> Result<String, String> {
-    let action = args
-        .get("action")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let subaction = args.get("subaction").and_then(Value::as_str);
-    let response_format = if action == "help" {
-        args.get("format").and_then(Value::as_str)
-    } else {
-        args.get("response_format").and_then(Value::as_str)
-    };
-    crate::formatters::render_action_output(tool_name, action, subaction, response_format, value)
-}
-
-fn validate_response_format_arg(args: &Value) -> Result<(), ErrorData> {
-    let Some(value) = args.get("response_format").and_then(Value::as_str) else {
-        return Ok(());
-    };
-    crate::formatters::ResponseFormat::parse(Some(value))
-        .map(|_| ())
-        .map_err(|e| ErrorData::invalid_params(e, None))
 }
 
 #[cfg(test)]

@@ -1,11 +1,11 @@
 /**
- * Typed client for the rmcp-template REST API.
+ * Typed client for the Synapse2 REST API.
  *
- * All actions are dispatched via POST /v1/example with:
+ * All actions are dispatched via POST /v1/synapse2 with:
  *   { "action": "<action>", "params": { ... } }
  *
  * The base URL is relative (empty string) so the same binary serves
- * both the API and the web UI — no CORS or cross-origin config needed.
+ * both the API and the web UI without CORS configuration.
  */
 
 import { endpoint, WEB_APP_CONFIG } from "@/lib/template";
@@ -15,20 +15,12 @@ export interface ApiResponse<T = unknown> {
   error?: string;
 }
 
-export interface GreetResult {
-  greeting: string;
-  target: string;
-  server?: string;
-}
-
-export interface EchoResult {
-  echo: string;
-}
-
 export interface StatusResult {
   status: string;
-  api_url?: string;
   note?: string;
+  server?: string;
+  version?: string;
+  transport?: string;
 }
 
 export interface HealthResult {
@@ -65,7 +57,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** POST /v1/example — dispatch an action */
+/** POST /v1/synapse2 — dispatch an action */
 export function callAction<T = unknown>(
   action: string,
   params: Record<string, unknown> = {},
@@ -86,9 +78,3 @@ export function getHealth(): Promise<ApiResponse<HealthResult>> {
 export function getStatus(): Promise<ApiResponse<StatusResult>> {
   return apiFetch<StatusResult>(endpoint(WEB_APP_CONFIG.statusEndpoint));
 }
-
-export const greet = (name?: string) => callAction<GreetResult>("greet", name ? { name } : {});
-
-export const echo = (message: string) => callAction<EchoResult>("echo", { message });
-
-export const status = () => callAction<StatusResult>("status");

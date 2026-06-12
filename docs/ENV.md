@@ -2,60 +2,74 @@
 title: "Environment Variables"
 doc_type: "guide"
 status: "active"
-owner: "rmcp-template"
+owner: "synapse2"
 audience:
   - "contributors"
   - "agents"
-scope: "template"
+scope: "synapse2"
 source_of_truth: false
 upstream_refs:
   - "src/config.rs"
-last_reviewed: "2026-05-15"
+last_reviewed: "2026-06-12"
 ---
 
 # Environment variables
 
-The template uses `EXAMPLE_*` variables. Rename the prefix when adapting the template.
+Synapse2 uses `SYNAPSE_*` variables for service configuration and
+`SYNAPSE_MCP_*` variables for MCP server configuration.
 
 ## Upstream service
 
 | Variable | Purpose |
 |---|---|
-| `EXAMPLE_API_URL` | Upstream API base URL used by `ExampleClient`. Required. |
-| `EXAMPLE_API_KEY` | Upstream API key or token. Keep secret. Required. |
+| `SYNAPSE_API_URL` | Optional upstream API base URL for integrations that need one. |
+| `SYNAPSE_API_KEY` | Optional upstream API key or token. Keep secret. |
 
 ## MCP HTTP server
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `EXAMPLE_MCP_HOST` | `127.0.0.1` | Bind host for HTTP transport. Set `0.0.0.0` only with bearer, OAuth, or trusted-gateway auth configured. |
-| `EXAMPLE_MCP_PORT` | `40080` | Bind port for HTTP transport. |
-| `EXAMPLE_MCP_NO_AUTH` | `false` | Disable local auth for loopback development only. |
-| `EXAMPLE_NOAUTH` | `false` | Trusted-gateway no-auth mode for non-loopback deployments. |
-| `EXAMPLE_MCP_TOKEN` | unset | Static bearer token. Required for bearer-only mounted HTTP. |
-| `EXAMPLE_MCP_ALLOWED_HOSTS` | unset | Extra accepted Host header values (comma-separated). |
-| `EXAMPLE_MCP_ALLOWED_ORIGINS` | unset | Extra CORS origins (comma-separated). |
-| `EXAMPLE_MCP_PUBLIC_URL` | unset | Public URL used for OAuth metadata endpoints. |
-| `EXAMPLE_MCP_AUTH_MODE` | `bearer` | `bearer` or `oauth`. |
-| `EXAMPLE_MCP_AUTH_SQLITE_PATH` | `/data/auth.db` | OAuth session/client database path. |
-| `EXAMPLE_MCP_AUTH_KEY_PATH` | `/data/auth-jwt.pem` | OAuth JWT signing key path. |
-| `EXAMPLE_MCP_AUTH_ACCESS_TOKEN_TTL_SECS` | `3600` | OAuth access-token TTL. |
-| `EXAMPLE_MCP_AUTH_REFRESH_TOKEN_TTL_SECS` | `2592000` | OAuth refresh-token TTL. |
-| `EXAMPLE_MCP_AUTH_CODE_TTL_SECS` | `300` | OAuth authorization-code TTL. |
-| `EXAMPLE_MCP_AUTH_REGISTER_REQUESTS_PER_MINUTE` | `10` | OAuth dynamic-registration rate limit. |
-| `EXAMPLE_MCP_AUTH_AUTHORIZE_REQUESTS_PER_MINUTE` | `60` | OAuth authorization rate limit. |
-| `EXAMPLE_MCP_AUTH_DISABLE_STATIC_TOKEN_WITH_OAUTH` | `true` | Disable static bearer tokens when OAuth is active. |
-| `EXAMPLE_MCP_AUTH_ALLOWED_REDIRECT_URIS` | unset | Extra OAuth redirect URI patterns (comma-separated). |
+| `SYNAPSE_MCP_HOST` | `127.0.0.1` | Bind host for HTTP transport. Set `0.0.0.0` only with bearer, OAuth, or trusted-gateway auth configured. |
+| `SYNAPSE_MCP_PORT` | `40080` | Bind port for HTTP transport. |
+| `SYNAPSE_MCP_SERVER_NAME` | `synapse2` | MCP server name advertised to clients. |
+| `SYNAPSE_MCP_NO_AUTH` | `false` | Disable local auth for loopback development only. |
+| `SYNAPSE_NOAUTH` | `false` | Trusted-gateway no-auth mode for non-loopback deployments. |
+| `SYNAPSE_MCP_ALLOW_DESTRUCTIVE` | `false` | Skip destructive-operation confirmation prompts. Startup refuses this on non-loopback binds. |
+| `SYNAPSE_MCP_TOKEN` | unset | Static bearer token. Required for bearer-only mounted HTTP. |
+| `SYNAPSE_MCP_ALLOWED_HOSTS` | unset | Extra accepted Host header values (comma-separated). |
+| `SYNAPSE_MCP_ALLOWED_ORIGINS` | unset | Extra CORS origins (comma-separated). |
+| `SYNAPSE_MCP_PUBLIC_URL` | unset | Public URL used for OAuth metadata endpoints. |
+| `SYNAPSE_MCP_AUTH_MODE` | `bearer` | `bearer` or `oauth`. |
+| `SYNAPSE_MCP_AUTH_SQLITE_PATH` | `/data/auth.db` | OAuth session/client database path. |
+| `SYNAPSE_MCP_AUTH_KEY_PATH` | `/data/auth-jwt.pem` | OAuth JWT signing key path. |
+| `SYNAPSE_MCP_AUTH_ACCESS_TOKEN_TTL_SECS` | `3600` | OAuth access-token TTL. |
+| `SYNAPSE_MCP_AUTH_REFRESH_TOKEN_TTL_SECS` | `2592000` | OAuth refresh-token TTL. |
+| `SYNAPSE_MCP_AUTH_CODE_TTL_SECS` | `300` | OAuth authorization-code TTL. |
+| `SYNAPSE_MCP_AUTH_REGISTER_REQUESTS_PER_MINUTE` | `10` | OAuth dynamic-registration rate limit. |
+| `SYNAPSE_MCP_AUTH_AUTHORIZE_REQUESTS_PER_MINUTE` | `60` | OAuth authorization rate limit. |
+| `SYNAPSE_MCP_AUTH_DISABLE_STATIC_TOKEN_WITH_OAUTH` | `true` | Disable static bearer tokens when OAuth is active. |
+| `SYNAPSE_MCP_AUTH_ALLOWED_REDIRECT_URIS` | unset | Extra OAuth redirect URI patterns (comma-separated). |
 
-## OAuth mode
-
-Only required when `EXAMPLE_MCP_AUTH_MODE=oauth`:
+## Host topology
 
 | Variable | Purpose |
 |---|---|
-| `EXAMPLE_MCP_GOOGLE_CLIENT_ID` | Google OAuth client ID. |
-| `EXAMPLE_MCP_GOOGLE_CLIENT_SECRET` | Google OAuth client secret. |
-| `EXAMPLE_MCP_AUTH_ADMIN_EMAIL` | Initial/admin email allowed by the OAuth flow. |
+| `SYNAPSE_HOSTS_CONFIG` | Inline host topology as a JSON array; highest priority. |
+| `SYNAPSE_CONFIG_FILE` | Path to a host config file; used when inline hosts are unset. |
+| `SYNAPSE_HOME` | Override appdata directory. Defaults to `~/.synapse2` outside containers and `/data` in containers. |
+
+When no host topology variable is set, Synapse2 falls back to `~/.ssh/config`
+discovery.
+
+## OAuth mode
+
+Only required when `SYNAPSE_MCP_AUTH_MODE=oauth`:
+
+| Variable | Purpose |
+|---|---|
+| `SYNAPSE_MCP_GOOGLE_CLIENT_ID` | Google OAuth client ID. |
+| `SYNAPSE_MCP_GOOGLE_CLIENT_SECRET` | Google OAuth client secret. |
+| `SYNAPSE_MCP_AUTH_ADMIN_EMAIL` | Initial/admin email allowed by the OAuth flow. |
 
 ## Docker runtime
 
@@ -63,8 +77,8 @@ Only required when `EXAMPLE_MCP_AUTH_MODE=oauth`:
 |---|---|
 | `DOCKER_GID` | Host docker group id; required when the Docker socket is mounted. |
 | `DOCKER_NETWORK` | Docker network name (default: `mcp`). |
-| `EXAMPLE_VERSION` | Image tag to pull (default: `latest`). |
-| `EXAMPLE_MCP_HOST_PORT` | Host port published to the container MCP port. |
+| `SYNAPSE2_VERSION` | Image tag to pull (default: `latest`). |
+| `SYNAPSE_MCP_HOST_PORT` | Host port published to the container MCP port. |
 
 ## Logging
 
@@ -78,15 +92,21 @@ Only required when `EXAMPLE_MCP_AUTH_MODE=oauth`:
 
 ```bash
 # .env — secrets, URLs, and deploy/runtime vars
-EXAMPLE_API_URL=https://example.internal/api
-EXAMPLE_API_KEY=your_api_key_here
+SYNAPSE_API_URL=https://api.synapse2.com/v1
+SYNAPSE_API_KEY=your_api_key_here
 
 # MCP auth
-EXAMPLE_MCP_TOKEN=your_bearer_token_here
+SYNAPSE_MCP_TOKEN=your_bearer_token_here
 
 # OAuth (only when auth_mode=oauth in config.toml)
-# EXAMPLE_MCP_GOOGLE_CLIENT_ID=...
-# EXAMPLE_MCP_GOOGLE_CLIENT_SECRET=...
+# SYNAPSE_MCP_AUTH_MODE=oauth
+# SYNAPSE_MCP_PUBLIC_URL=https://synapse2.example.com
+# SYNAPSE_MCP_GOOGLE_CLIENT_ID=...
+# SYNAPSE_MCP_GOOGLE_CLIENT_SECRET=...
+# SYNAPSE_MCP_AUTH_ADMIN_EMAIL=admin@example.com
+
+# Host topology
+# SYNAPSE_CONFIG_FILE=/home/synapse/.synapse2/hosts.toml
 
 # Docker runtime
 DOCKER_GID=999

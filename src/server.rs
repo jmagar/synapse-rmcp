@@ -166,12 +166,22 @@ pub fn build_auth_layer(
                 AuthLayer::new()
                     .with_static_token(static_token)
                     .with_auth_state(auth_state.clone())
-                    .with_static_token_scopes(vec![crate::actions::READ_SCOPE.into()])
+                    .with_static_token_scopes(static_bearer_scopes())
                     .with_resource_url(resource_url)
                     .with_allow_session_cookie(false),
             )
         }
     }
+}
+
+/// Static bearer tokens are intentionally read-only.
+///
+/// OAuth-issued tokens may request both `synapse:read` and `synapse:write`, but
+/// the single configured bearer token is for gateway/service probes and safe
+/// read automation. Write-capable deployments should use OAuth or an external
+/// authorization gateway.
+pub fn static_bearer_scopes() -> Vec<String> {
+    vec![crate::actions::READ_SCOPE.into()]
 }
 
 #[cfg(test)]

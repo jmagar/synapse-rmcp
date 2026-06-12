@@ -1,4 +1,4 @@
-//! Configuration structs for the Example MCP server.
+//! Configuration structs for the Synapse2 MCP server.
 //!
 //! Values are loaded in priority order:
 //!   1. `config.toml` — non-secret defaults. Searched in the service data dir

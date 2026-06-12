@@ -1,16 +1,16 @@
 # apps/web
 
-Operator dashboard and interactive tool runner for the MCP server. Built with Next.js 16 (static export), React 19, Tailwind CSS 4, Biome, and the Aurora design system.
+Operator dashboard and interactive tool runner for Synapse2. Built with Next.js 16 (static export), React 19, Tailwind CSS 4, Biome, and the Aurora design system.
 
 ## What it is
 
-A static web UI served by the Rust binary alongside the MCP API. This app is for application/platform servers that intentionally expose API + CLI + MCP + Web. Upstream-client MCP servers should keep MCP + CLI parity and omit REST/Web unless they own additional workflows, state, dashboards, or non-MCP consumers.
+A static web UI served by the Rust binary alongside the MCP API. Synapse2 exposes API + CLI + MCP + Web for local Flux and Scout workflows.
 
 Three pages:
 
 - **Dashboard** (`/`) — Server health (10s polling), status cards, quick action buttons, activity feed
 - **Tool Runner** (`/tools/`) — Select an action, fill in parameters, see the request preview and live JSON response
-- **API Explorer** (`/api/`) — Endpoint reference, surface parity table (MCP / REST / CLI), cURL examples for REST-capable actions, and notes for MCP-only actions
+- **API Explorer** (`/api/`) — Endpoint reference, surface parity table (MCP / REST / CLI), and cURL examples for REST-capable actions
 
 ## Stack
 
@@ -39,18 +39,18 @@ pnpm validate   # Biome check + typecheck + tests + static build
 
 ## How it connects to the backend
 
-All API calls go through `lib/api.ts`. Template-facing service names, endpoints, and action metadata live in `lib/template.ts` so a scaffolded project has one obvious place to update the web UI.
+All API calls go through `lib/api.ts`. Service names, endpoints, and action metadata live in `lib/template.ts` so the web UI has one obvious place to track the generated Synapse2 contract.
 
-By default, the base URL is empty (relative) — the Rust server serves both the static files and the API from the same origin, so no CORS configuration is needed. For local `pnpm dev` against a separately running backend, copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_EXAMPLE_API_BASE_URL` (for example, `http://localhost:3100`).
+By default, the base URL is empty (relative) — the Rust server serves both the static files and the API from the same origin, so no CORS configuration is needed. For local `pnpm dev` against a separately running backend, copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_SYNAPSE2_API_BASE_URL` (for example, `http://localhost:40080`).
 
 Every action is dispatched as:
 
 ```
-POST /v1/example
+POST /v1/synapse2
 { "action": "<action>", "params": { ... } }
 ```
 
-Helper functions (`greet`, `echo`, `status`, `callAction`) wrap the fetch call with typed `ApiResponse<T>` returns. Health and status use `GET /health` and `GET /status`.
+`callAction` wraps the fetch call with typed `ApiResponse<T>` returns. Health and status use `GET /health` and `GET /status`.
 
 ## Design system (Aurora)
 
@@ -93,7 +93,7 @@ apps/web/
 │   └── ui/               # Aurora/shadcn components
 ├── lib/
 │   ├── api.ts            # Typed REST client
-│   ├── template.ts       # Template knobs: branding, endpoints, action metadata
+│   ├── template.ts       # Branding, endpoints, action metadata
 │   └── utils.ts          # cn() helper
 ├── components.json       # shadcn config — @aurora registry
 ├── next.config.ts        # Static export, output: "export"
@@ -108,13 +108,13 @@ apps/web/
 - **All API calls through `lib/api.ts`** — don't fetch directly in components.
 - **`cn()` for classNames** — never string concatenation.
 
-## TEMPLATE
+## Contract maintenance
 
-When adapting for a real service:
+`lib/template.ts` must stay aligned with `docs/generated/openapi.json`. The Vitest contract test compares the web action list against the generated OpenAPI `ActionName` enum and `x-template.rest_actions` metadata.
 
-0. First decide whether the service should keep only MCP + CLI. If it is an upstream-client server like `unrust`, `rustifi`, `rustify`, `rustscale`, or `apprise`, remove/ignore `apps/web` unless there is a specific product need for API/Web.
-1. For application/platform servers, update `WEB_APP_CONFIG` in `lib/template.ts` with your service name, display name, endpoints, and env var prefix.
-2. Update `ACTIONS` in `lib/template.ts` to match your service's actions, parameters, scopes, and examples.
-3. Update `lib/api.ts` helper functions and response interfaces to match your service's action result shapes.
-4. Replace `NEXT_PUBLIC_EXAMPLE_API_BASE_URL` in `.env.example` and docs with your service-specific public env var name.
-5. Run `pnpm validate` before committing the scaffolded web app.
+When Synapse2 adds or removes REST actions:
+
+1. Regenerate the OpenAPI document.
+2. Update `ACTIONS` in `lib/template.ts` with action descriptions, parameters, scopes, examples, and sample responses.
+3. Update dashboard/API examples if the quick actions or parity examples should change.
+4. Run `pnpm validate`.

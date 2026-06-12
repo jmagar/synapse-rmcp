@@ -15,8 +15,9 @@
 //!
 //! - Local exec runs via `std::process::Command` for local hosts. The `path`
 //!   parameter (optional working directory) is applied via `current_dir` only
-//!   for local exec. Remote exec cannot change directory without a shell, so
-//!   `path` is ignored for remote hosts (documented limitation).
+//!   for local exec and local emit targets. Remote exec cannot change directory
+//!   without a shell, so remote emit targets reject `path` instead of silently
+//!   ignoring it.
 //!
 //! - **beam** validates BOTH source and destination paths via `validate_safe_path`.
 //!   The transfer is implemented via `scp` launched as a subprocess (no shell
@@ -31,10 +32,10 @@
 #[path = "exec_tests.rs"]
 mod tests;
 
+use std::collections::HashMap;
 use std::path::Path;
-use std::time::Duration;
-
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
@@ -159,11 +160,19 @@ pub async fn emit(
         bail!("emit: targets must not be empty");
     }
 
+    let target_paths = target_paths_by_host(targets)?;
+
     // Pre-validate command name against the global allowlist before confirmation.
     validate_command(command, &[])?;
 
-    let host_names: Vec<String> = targets.iter().map(|t| t.host.name.clone()).collect();
-    let details = format!("command={command} hosts={}", host_names.join(", "));
+    let target_labels: Vec<String> = targets
+        .iter()
+        .map(|t| match &t.path {
+            Some(path) => format!("{}:{path}", t.host.name),
+            None => t.host.name.clone(),
+        })
+        .collect();
+    let details = format!("command={command} targets={}", target_labels.join(", "));
     confirmer
         .require("scout:emit", &details)
         .await
@@ -175,20 +184,29 @@ pub async fn emit(
     let host_configs: Vec<HostConfig> = targets.iter().map(|t| t.host.clone()).collect();
     let command_owned = command.to_owned();
     let args_owned: Vec<String> = args.to_vec();
+    let target_paths = Arc::new(target_paths);
 
     let outcome: FanoutOutcome<Value, String> = fanout(&host_configs, |host| {
         let ex = Arc::clone(&executor);
         let cmd = command_owned.clone();
         let arg_strs: Vec<String> = args_owned.clone();
+        let target_paths = Arc::clone(&target_paths);
         async move {
             // Per-host command validation (host-specific allowlist may differ).
             validate_command(&cmd, &host.exec_allowlist).map_err(|e| e.to_string())?;
 
             let arg_refs: Vec<&str> = arg_strs.iter().map(|s| s.as_str()).collect();
+            let path = target_paths
+                .get(&host.name)
+                .and_then(|path| path.as_deref());
 
             let fut = async {
                 if is_local_host(&host) {
-                    exec_local_fanout(&host, &cmd, &arg_refs, None).await
+                    exec_local_fanout(&host, &cmd, &arg_refs, path).await
+                } else if let Some(path) = path {
+                    Err(anyhow::anyhow!(
+                        "target path {path} is only supported for local emit targets"
+                    ))
                 } else {
                     exec_remote_fanout(&host, ex.as_ref(), &cmd, &arg_refs).await
                 }
@@ -230,6 +248,27 @@ pub async fn emit(
     }))
 }
 
+fn target_paths_by_host(targets: &[EmitTarget]) -> Result<HashMap<String, Option<String>>> {
+    let mut paths = HashMap::new();
+    for target in targets {
+        if let Some(path) = &target.path {
+            validate_safe_path(path)?;
+        }
+        match paths.get(&target.host.name) {
+            Some(existing) if existing != &target.path => {
+                bail!(
+                    "emit target {} appears multiple times with different paths",
+                    target.host.name
+                );
+            }
+            _ => {
+                paths.insert(target.host.name.clone(), target.path.clone());
+            }
+        }
+    }
+    Ok(paths)
+}
+
 async fn exec_local_fanout(
     _host: &HostConfig,
     command: &str,
@@ -239,6 +278,7 @@ async fn exec_local_fanout(
     let output =
         crate::runtime_budget::run_local_command(command, args, path.map(Path::new)).await?;
     Ok(json!({
+        "path": path,
         "exit_code": output.exit_code,
         "stdout": output.stdout,
         "stderr": output.stderr,
@@ -253,6 +293,7 @@ async fn exec_remote_fanout(
 ) -> Result<Value> {
     let out = executor.exec(host, command, args).await?;
     Ok(json!({
+        "path": null,
         "exit_code": out.exit_code,
         "stdout": out.stdout,
         "stderr": out.stderr,

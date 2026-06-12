@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionButton } from "@/components/dashboard/action-button";
 import { Card } from "@/components/dashboard/card";
 import { Button } from "@/components/ui/button";
-import { echo, getHealth, getStatus, greet, type StatusResult, status } from "@/lib/api";
+import { callAction, getHealth, getStatus, type StatusResult } from "@/lib/api";
 import { WEB_APP_CONFIG } from "@/lib/template";
 
 type HealthState = "ok" | "error" | "loading";
@@ -46,19 +46,28 @@ export default function DashboardPage() {
     setActivity((prev) => [item, ...prev].slice(0, 20));
   }, []);
 
-  const handleGreet = async () => {
-    const res = await greet("Alice");
-    addActivity("greet(Alice)", res.data?.greeting ?? res.error ?? "error", !res.error);
+  const summarize = (value: unknown) => {
+    if (typeof value === "string") return value;
+    return JSON.stringify(value);
   };
 
-  const handleEcho = async () => {
-    const res = await echo("Hello from the dashboard!");
-    addActivity("echo", res.data?.echo ?? res.error ?? "error", !res.error);
+  const handleHelp = async () => {
+    const res = await callAction("help");
+    addActivity("help", res.data ? summarize(res.data) : (res.error ?? "error"), !res.error);
   };
 
-  const handleStatus = async () => {
-    const res = await status();
-    addActivity("status", res.data?.status ?? res.error ?? "error", !res.error);
+  const handleDockerDf = async () => {
+    const res = await callAction("flux.docker.df");
+    addActivity(
+      "flux.docker.df",
+      res.data ? summarize(res.data) : (res.error ?? "error"),
+      !res.error,
+    );
+  };
+
+  const handleNodes = async () => {
+    const res = await callAction("scout.nodes");
+    addActivity("scout.nodes", res.data ? summarize(res.data) : (res.error ?? "error"), !res.error);
   };
 
   const statusColor: Record<HealthState, string> = {
@@ -89,7 +98,7 @@ export default function DashboardPage() {
           {WEB_APP_CONFIG.dashboardTitle}
         </h1>
         <p style={{ color: "var(--aurora-text-muted)", fontSize: "0.875rem" }}>
-          {WEB_APP_CONFIG.displayName} MCP server — real-time status and quick actions
+          {WEB_APP_CONFIG.displayName} MCP server — real-time status and safe quick actions
         </p>
       </div>
 
@@ -117,7 +126,7 @@ export default function DashboardPage() {
           </p>
         </Card>
 
-        <Card title="API URL">
+        <Card title="Runtime">
           <p
             style={{
               color: "var(--aurora-accent-primary)",
@@ -126,8 +135,13 @@ export default function DashboardPage() {
               wordBreak: "break-all",
             }}
           >
-            {serverStatus?.api_url ?? "—"}
+            {serverStatus?.server ?? WEB_APP_CONFIG.serviceName}
           </p>
+          {serverStatus?.version && (
+            <p style={{ color: "var(--aurora-text-muted)", fontSize: "0.75rem" }}>
+              v{serverStatus.version}
+            </p>
+          )}
         </Card>
 
         <Card title="Status">
@@ -151,6 +165,17 @@ export default function DashboardPage() {
               }}
             >
               {serverStatus.note}
+            </p>
+          )}
+          {serverStatus?.transport && (
+            <p
+              style={{
+                color: "var(--aurora-text-muted)",
+                fontSize: "0.75rem",
+                marginTop: "0.25rem",
+              }}
+            >
+              {serverStatus.transport}
             </p>
           )}
         </Card>
@@ -178,9 +203,9 @@ export default function DashboardPage() {
           Quick Actions
         </h2>
         <div className="flex flex-wrap gap-3">
-          <ActionButton onClick={handleGreet} label="Greet Alice" />
-          <ActionButton onClick={handleEcho} label="Echo Test" />
-          <ActionButton onClick={handleStatus} label="Server Status" />
+          <ActionButton onClick={handleHelp} label="Help" />
+          <ActionButton onClick={handleDockerDf} label="Docker Disk" />
+          <ActionButton onClick={handleNodes} label="Scout Nodes" />
           <Button asChild variant="neutral">
             <a href="/tools/">Open Tool Runner →</a>
           </Button>
