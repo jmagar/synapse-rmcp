@@ -9,8 +9,8 @@ use crate::{
 };
 
 use super::{
-    internal_tool_error_message, reject_unknown_action_before_scope, scope_satisfied,
-    tool_result_from_json,
+    internal_tool_error_message, parse_mcp_action, reject_unknown_action_before_scope,
+    rmcp_tool_definitions, rmcp_tool_from_json, scope_satisfied, tool_result_from_json,
 };
 
 fn scopes(s: &[&str]) -> Vec<String> {
@@ -89,6 +89,65 @@ fn internal_tool_errors_include_stable_kind() {
     let message = internal_tool_error_message("docker");
     assert!(message.contains("kind=execution_error"));
     assert!(message.contains("action='docker'"));
+}
+
+#[test]
+fn rmcp_tool_definitions_include_flux_and_scout_tools() {
+    let tools = rmcp_tool_definitions().expect("tool definitions should convert");
+    let names: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+
+    assert_eq!(names, ["flux", "scout"]);
+    assert!(tools
+        .iter()
+        .all(|tool| tool.input_schema.contains_key("properties")));
+}
+
+#[test]
+fn rmcp_tool_from_json_rejects_missing_required_fields() {
+    let missing_name = rmcp_tool_from_json(json!({
+        "description": "nope",
+        "inputSchema": {}
+    }))
+    .expect_err("missing name should be rejected");
+    assert!(missing_name.message.contains("missing name"));
+
+    let missing_schema = rmcp_tool_from_json(json!({
+        "name": "flux",
+        "description": "nope"
+    }))
+    .expect_err("missing input schema should be rejected");
+    assert!(missing_schema.message.contains("missing inputSchema"));
+}
+
+#[test]
+fn parse_mcp_action_maps_flux_and_scout_validation_errors() {
+    let flux = parse_mcp_action(
+        "flux",
+        &json!({
+            "action": "docker",
+            "subaction": "info"
+        }),
+    )
+    .expect("valid flux action should parse");
+    assert_eq!(flux.name(), "docker");
+
+    let scout = parse_mcp_action(
+        "scout",
+        &json!({
+            "action": "nodes"
+        }),
+    )
+    .expect("valid scout action should parse");
+    assert_eq!(scout.name(), "nodes");
+
+    let error = parse_mcp_action(
+        "flux",
+        &json!({
+            "action": "definitely-not-real"
+        }),
+    )
+    .expect_err("unknown action should map to invalid params");
+    assert!(error.message.contains("unknown synapse2 action"));
 }
 
 #[test]

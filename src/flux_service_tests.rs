@@ -4,11 +4,110 @@
 //! Docker daemon (help and the static fields of host_status don't shell out).
 
 use super::*;
+use crate::compose::{ComposeDiscovery, DiscoveredFrom};
+use crate::elicitation_gate::{ConfirmationDenied, Confirmer};
 use crate::host_config::FileHostRepository;
+use crate::ssh::{CommandOutput, SshExecutor};
 use crate::synapse::{HostConfig, HostProtocol};
+use async_trait::async_trait;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn stub_flux() -> FluxService {
     FluxService::new(Arc::new(FileHostRepository::default()))
+}
+
+struct StubHostRepository {
+    hosts: Vec<HostConfig>,
+}
+
+impl crate::host_config::HostRepository for StubHostRepository {
+    fn load_hosts(&self) -> Result<Vec<HostConfig>> {
+        Ok(self.hosts.clone())
+    }
+}
+
+fn flux_with_hosts(hosts: Vec<HostConfig>) -> FluxService {
+    FluxService::new(Arc::new(StubHostRepository { hosts }))
+}
+
+struct MockComposeExec {
+    ls_stdout: String,
+    find_stdout: String,
+    cat_stdout: String,
+    calls: AtomicUsize,
+}
+
+impl MockComposeExec {
+    fn empty() -> Self {
+        Self {
+            ls_stdout: String::new(),
+            find_stdout: String::new(),
+            cat_stdout: String::new(),
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    fn with_project_without_config(project: &str) -> Self {
+        Self {
+            ls_stdout: format!(
+                r#"[{{"Name":"{project}","Status":"running(1)","ConfigFiles":""}}]"#
+            ),
+            find_stdout: String::new(),
+            cat_stdout: String::new(),
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    fn with_scanned_project(project: &str, config_file: &str) -> Self {
+        Self {
+            ls_stdout: String::new(),
+            find_stdout: format!("{config_file}\n"),
+            cat_stdout: format!("name: {project}\n"),
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl SshExecutor for MockComposeExec {
+    async fn exec(
+        &self,
+        _host: &HostConfig,
+        program: &str,
+        args: &[&str],
+    ) -> Result<CommandOutput> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let stdout = match program {
+            "docker" => self.ls_stdout.clone(),
+            "find" => self.find_stdout.clone(),
+            "cat" => {
+                if args.last().is_some() {
+                    self.cat_stdout.clone()
+                } else {
+                    String::new()
+                }
+            }
+            other => return Err(anyhow::anyhow!("unexpected program {other}")),
+        };
+        Ok(CommandOutput {
+            stdout,
+            stderr: String::new(),
+            exit_code: Some(0),
+        })
+    }
+}
+
+struct DenyConfirmer;
+
+#[async_trait]
+impl Confirmer for DenyConfirmer {
+    async fn require(&self, _op: &str, _details: &str) -> Result<(), ConfirmationDenied> {
+        Err(ConfirmationDenied::Declined)
+    }
 }
 
 #[tokio::test]
@@ -91,6 +190,272 @@ fn test_host(name: &str) -> HostConfig {
         scout_read_roots: Vec::new(),
         exec_allowlist: Vec::new(),
     }
+}
+
+fn compose_host(name: &str) -> HostConfig {
+    let mut host = test_host(name);
+    host.compose_search_paths = vec!["/compose".to_owned()];
+    host
+}
+
+#[test]
+fn target_hosts_returns_named_host_from_injected_repo() {
+    let flux = flux_with_hosts(vec![test_host("alpha"), test_host("beta")]);
+
+    let hosts = flux.target_hosts(Some("beta")).unwrap();
+
+    assert_eq!(hosts.len(), 1);
+    assert_eq!(hosts[0].name, "beta");
+}
+
+#[test]
+fn target_hosts_reports_unknown_host_from_injected_repo() {
+    let flux = flux_with_hosts(vec![test_host("alpha")]);
+
+    let err = flux.target_hosts(Some("missing")).unwrap_err();
+
+    assert!(err.to_string().contains("unknown host"));
+}
+
+#[tokio::test]
+async fn compose_list_resolves_host_via_injected_repo() {
+    let mock = Arc::new(MockComposeExec::with_scanned_project(
+        "myapp",
+        "/compose/myapp/docker-compose.yml",
+    ));
+    let mut flux = flux_with_hosts(vec![compose_host("tootie")]);
+    flux.compose = Arc::new(ComposeDiscovery::new(mock.clone()));
+
+    let projects = flux.compose_list("tootie").await.unwrap();
+
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].name, "myapp");
+    assert_eq!(
+        projects[0].primary_config_file(),
+        Some("/compose/myapp/docker-compose.yml")
+    );
+    assert_eq!(projects[0].discovered_from, DiscoveredFrom::Scan);
+    assert!(
+        mock.calls() >= 3,
+        "compose list should use discovery executor"
+    );
+}
+
+#[tokio::test]
+async fn resolve_compose_project_reports_missing_project() {
+    let mock = Arc::new(MockComposeExec::empty());
+    let mut flux = flux_with_hosts(vec![compose_host("tootie")]);
+    flux.compose = Arc::new(ComposeDiscovery::new(mock));
+    let host = compose_host("tootie");
+
+    let err = flux
+        .resolve_compose_project(&host, "missing")
+        .await
+        .unwrap_err();
+
+    assert!(err
+        .to_string()
+        .contains("compose project \"missing\" not found"));
+}
+
+#[tokio::test]
+async fn resolve_compose_project_reports_project_without_config_file() {
+    let mock = Arc::new(MockComposeExec::with_project_without_config("orphan"));
+    let mut flux = flux_with_hosts(vec![compose_host("tootie")]);
+    flux.compose = Arc::new(ComposeDiscovery::new(mock));
+    let host = compose_host("tootie");
+
+    let err = flux
+        .resolve_compose_project(&host, "orphan")
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("has no config file path"));
+}
+
+#[tokio::test]
+async fn compose_refresh_invalidates_cached_discovery_for_one_host() {
+    let mock = Arc::new(MockComposeExec::with_scanned_project(
+        "myapp",
+        "/compose/myapp/docker-compose.yml",
+    ));
+    let mut flux = flux_with_hosts(vec![compose_host("tootie")]);
+    flux.compose = Arc::new(ComposeDiscovery::new(mock.clone()));
+
+    let first = flux.compose_list("tootie").await.unwrap();
+    let calls_after_first = mock.calls();
+    let second = flux.compose_list("tootie").await.unwrap();
+    assert_eq!(first, second);
+    assert_eq!(
+        mock.calls(),
+        calls_after_first,
+        "second list should hit cache"
+    );
+
+    flux.compose_refresh(Some("tootie"));
+    let third = flux.compose_list("tootie").await.unwrap();
+
+    assert_eq!(third, first);
+    assert!(
+        mock.calls() > calls_after_first,
+        "refresh should force rediscovery"
+    );
+}
+
+#[tokio::test]
+async fn host_driver_unknown_host_fails_before_exec_or_docker_client() {
+    let flux = flux_with_hosts(vec![test_host("alpha")]);
+
+    let err = flux.host_mounts("missing").await.unwrap_err();
+
+    assert!(err.to_string().contains("unknown host"));
+}
+
+#[tokio::test]
+async fn host_driver_empty_fanout_returns_empty_shapes_without_io() {
+    let flux = flux_with_hosts(Vec::new());
+
+    let status = flux.host_status(None).await.unwrap();
+    let info = flux.host_info(None).await.unwrap();
+    let uptime = flux.host_uptime(None).await.unwrap();
+    let resources = flux.host_resources(None).await.unwrap();
+    let network = flux.host_network(None).await.unwrap();
+
+    for value in [status, info, uptime, resources, network] {
+        assert_eq!(value["count"], 0);
+        assert_eq!(value["partial"], false);
+        assert!(value.get("errors").is_none());
+    }
+}
+
+#[tokio::test]
+async fn host_driver_single_host_ops_reject_unknown_host_before_io() {
+    let flux = flux_with_hosts(vec![test_host("alpha")]);
+
+    let services = flux.host_services("missing", None, None).await.unwrap_err();
+    let ports = flux
+        .host_ports("missing", None, None, None)
+        .await
+        .unwrap_err();
+    let doctor = flux
+        .host_doctor("missing", vec!["docker".to_owned()])
+        .await
+        .unwrap_err();
+
+    assert!(services.to_string().contains("unknown host"));
+    assert!(ports.to_string().contains("unknown host"));
+    assert!(doctor.to_string().contains("unknown host"));
+}
+
+#[tokio::test]
+async fn docker_driver_empty_fanout_returns_empty_shapes_without_io() {
+    let flux = flux_with_hosts(Vec::new());
+
+    let info = flux.docker_info(None).await.unwrap();
+    let df = flux.docker_df(None).await.unwrap();
+    let images = flux.docker_images(None, false).await.unwrap();
+    let networks = flux.docker_networks(None).await.unwrap();
+    let volumes = flux.docker_volumes(None).await.unwrap();
+
+    for value in [info, df, images, networks, volumes] {
+        assert_eq!(value["count"], 0);
+        assert_eq!(value["partial"], false);
+        assert!(value.get("errors").is_none());
+    }
+}
+
+#[tokio::test]
+async fn docker_driver_single_host_ops_reject_unknown_host_before_io() {
+    let flux = flux_with_hosts(vec![test_host("alpha")]);
+    let build_args = docker::BuildArgs {
+        context: "/srv/app".to_owned(),
+        tag: "app:test".to_owned(),
+        dockerfile: None,
+        no_cache: false,
+    };
+
+    let pull = flux
+        .docker_pull("missing", "alpine:latest")
+        .await
+        .unwrap_err();
+    let build = flux
+        .docker_build("missing", build_args, &DenyConfirmer)
+        .await
+        .unwrap_err();
+    let rmi = flux
+        .docker_rmi("missing", "alpine:latest", false, &DenyConfirmer)
+        .await
+        .unwrap_err();
+    let prune = flux
+        .docker_prune("missing", docker::PruneTarget::Images, &DenyConfirmer)
+        .await
+        .unwrap_err();
+
+    assert!(pull.to_string().contains("unknown host"));
+    assert!(build.to_string().contains("unknown host"));
+    assert!(rmi.to_string().contains("unknown host"));
+    assert!(prune.to_string().contains("unknown host"));
+}
+
+#[tokio::test]
+async fn container_driver_unknown_named_host_fails_before_docker_client() {
+    let flux = flux_with_hosts(vec![test_host("alpha")]);
+
+    let err = flux
+        .container_inspect(Some("missing"), "container-id", true)
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("unknown host"));
+}
+
+#[tokio::test]
+async fn container_driver_empty_fanout_returns_empty_shapes_without_io() {
+    let flux = flux_with_hosts(Vec::new());
+
+    let list = flux
+        .container_list(None, ListFilters::default())
+        .await
+        .unwrap();
+    let search = flux.container_search(None, "nginx").await.unwrap();
+    let stats = flux.container_stats(None, None).await.unwrap();
+
+    for value in [list, search, stats] {
+        assert_eq!(value["count"], 0);
+        assert_eq!(value["partial"], false);
+        assert!(value.get("errors").is_none());
+    }
+}
+
+#[tokio::test]
+async fn container_stop_confirmation_decline_blocks_before_host_resolution() {
+    let flux = flux_with_hosts(vec![test_host("alpha")]);
+
+    let err = flux
+        .container_lifecycle(Some("missing"), "container-id", "stop", &DenyConfirmer)
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("declined"));
+}
+
+#[tokio::test]
+async fn container_exec_confirmation_decline_blocks_before_host_resolution() {
+    let flux = flux_with_hosts(vec![test_host("alpha")]);
+    let params = container_lifecycle::ExecParams {
+        container_id: "container-id".to_owned(),
+        command: vec!["true".to_owned()],
+        user: None,
+        workdir: None,
+        timeout_ms: container_lifecycle::EXEC_TIMEOUT_DEFAULT_MS,
+    };
+
+    let err = flux
+        .container_exec(Some("missing"), params, &DenyConfirmer)
+        .await
+        .unwrap_err();
+
+    assert!(err.to_string().contains("declined"));
 }
 
 #[test]
