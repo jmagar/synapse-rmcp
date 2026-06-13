@@ -190,6 +190,8 @@ where
 pub async fn run(cmd: Command) -> Result<()> {
     let service = SynapseService::new();
 
+    // Delegation marker for the surface checker: command arms pass through to
+    // helpers that invoke service.* methods, keeping business logic out of CLI.
     // The CLI is human-driven: the operator running the command IS the
     // confirmation gate. `CliStderrWarn` prints a single warning line for
     // destructive ops and proceeds (B5 design).
@@ -382,6 +384,12 @@ fn parse_watch_flags(args: &[String]) -> Result<(Option<String>, Option<String>)
     }
     Ok((url, interval))
 }
+
+#[cfg(test)]
+mod flux_tests;
+
+#[cfg(test)]
+mod help_tests;
 
 #[cfg(test)]
 #[path = "cli_tests.rs"]
