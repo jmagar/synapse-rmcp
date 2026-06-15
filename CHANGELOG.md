@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- TEMPLATE: Add changes here as you work. They move to a version section on release. -->
 
+### Changed
+
+- **Published Docker images are now `linux/amd64` only.** The `Docker Publish`
+  workflow previously also built `linux/arm64` under QEMU emulation, which made
+  the emulated Rust release build exceed the job timeout and cancel every run.
+  Dropping arm64 makes publishing reliable again; re-add it via a native arm64
+  runner matrix if arm64 images are needed.
+
 ## [0.5.2] — 2026-06-11
 
 ### Fixed
