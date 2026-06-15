@@ -1,4 +1,4 @@
-use super::{default_data_dir, AuthMode, Config};
+use super::{AuthMode, Config, default_data_dir};
 use std::collections::BTreeMap;
 
 /// Seed process environment variables from configured `.env` files.
@@ -22,7 +22,13 @@ pub fn load_dotenv_environment() -> anyhow::Result<()> {
     }
     for (key, value) in entries {
         if std::env::var_os(&key).is_none() {
-            std::env::set_var(key, value);
+            // SAFETY: called once at single-threaded startup (before the Tokio
+            // runtime or any other threads are spawned), so there is no
+            // concurrent env access. Edition 2024 marks `set_var` unsafe to
+            // guard against the multi-threaded case, which does not apply here.
+            unsafe {
+                std::env::set_var(key, value);
+            }
         }
     }
     Ok(())
@@ -225,28 +231,28 @@ fn parse_list_value(value: &str) -> Vec<String> {
 }
 
 pub(super) fn env_str(key: &str, target: &mut String) {
-    if let Ok(v) = std::env::var(key) {
-        if !v.is_empty() {
-            *target = v;
-        }
+    if let Ok(v) = std::env::var(key)
+        && !v.is_empty()
+    {
+        *target = v;
     }
 }
 
 pub(super) fn env_opt_str(key: &str, target: &mut Option<String>) {
-    if let Ok(v) = std::env::var(key) {
-        if !v.is_empty() {
-            *target = Some(v);
-        }
+    if let Ok(v) = std::env::var(key)
+        && !v.is_empty()
+    {
+        *target = Some(v);
     }
 }
 
 pub(super) fn env_parse<T: std::str::FromStr>(key: &str, target: &mut T) -> anyhow::Result<()> {
-    if let Ok(v) = std::env::var(key) {
-        if !v.is_empty() {
-            *target = v
-                .parse()
-                .map_err(|_| anyhow::anyhow!("{key}: invalid value {v:?}"))?;
-        }
+    if let Ok(v) = std::env::var(key)
+        && !v.is_empty()
+    {
+        *target = v
+            .parse()
+            .map_err(|_| anyhow::anyhow!("{key}: invalid value {v:?}"))?;
     }
     Ok(())
 }

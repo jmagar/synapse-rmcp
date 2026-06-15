@@ -1,10 +1,10 @@
 //! Route-level smoke tests for public status and optional REST compatibility.
 
 use axum::{
-    body::{to_bytes, Body},
-    http::{header, Method, Request, StatusCode},
+    body::{Body, to_bytes},
+    http::{Method, Request, StatusCode, header},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use synapse2::{server, testing::loopback_state};
 use tower::ServiceExt;
 
@@ -137,10 +137,12 @@ async fn rest_unknown_action_is_bad_request() {
     .await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body["error"]
-        .as_str()
-        .unwrap()
-        .contains("unknown synapse2 action"));
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("unknown synapse2 action")
+    );
 }
 
 #[tokio::test]
@@ -154,6 +156,46 @@ async fn status_returns_only_local_redacted_metadata() {
     assert_eq!(body["transport"], "http");
     assert!(body.get("version").is_some());
     assert!(body.get("api_key").is_none(), "{body}");
+}
+
+/// Destructive REST actions (no elicitation channel) must return 403, not 500.
+///
+/// `flux.docker.prune` is write-scoped and confirmer-gated. On loopback state
+/// (no auth), the request bypasses scope checks and reaches the `DenyConfirm`
+/// gate which returns a typed `ConfirmationDenied` error. The REST handler must
+/// map that to 403 Forbidden — not 500 — and not log at error level.
+#[tokio::test]
+async fn rest_destructive_action_confirmation_denied_returns_403_not_500() {
+    // loopback_state has allow_destructive=false (default) and no auth,
+    // so the request passes scope enforcement and reaches DenyConfirm.
+    let app = server::router(loopback_state());
+    let (status, body) = request_json(
+        app,
+        Method::POST,
+        "/v1/synapse2",
+        Some(json!({
+            "action": "flux.docker.prune",
+            "params": {
+                "host": "local",
+                "prune_target": "images",
+                "force": true
+            }
+        })),
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "flux.docker.prune with DenyConfirm must return 403 Forbidden, not 500; body={body}"
+    );
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("destructive"),
+        "403 body must mention 'destructive'; body={body}"
+    );
 }
 
 #[tokio::test]

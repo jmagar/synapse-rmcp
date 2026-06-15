@@ -189,7 +189,7 @@ async fn delta_rejects_content_over_1mb() {
     );
 }
 
-// ─── find pattern guard ───────────────────────────────────────────────────────
+// ─── find pattern guard (S-M2) ───────────────────────────────────────────────
 
 #[test]
 fn find_rejects_leading_dash_pattern() {
@@ -207,6 +207,136 @@ fn find_rejects_leading_dash_pattern() {
         None,
     ));
     assert!(result.is_err(), "leading dash pattern must be rejected");
+}
+
+#[test]
+fn find_rejects_nul_byte_in_pattern() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut host = HostConfig::local();
+    host.scout_read_roots = vec!["/tmp".into()];
+
+    let result = rt.block_on(super::find(
+        &host,
+        &NoopExec,
+        "/tmp",
+        "*.txt\0evil",
+        None,
+        None,
+    ));
+    assert!(result.is_err(), "NUL byte in pattern must be rejected");
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("NUL"), "error must mention NUL: {msg}");
+}
+
+#[test]
+fn find_rejects_over_length_pattern() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut host = HostConfig::local();
+    host.scout_read_roots = vec!["/tmp".into()];
+
+    let long_pattern = "a".repeat(257);
+    let result = rt.block_on(super::find(
+        &host,
+        &NoopExec,
+        "/tmp",
+        &long_pattern,
+        None,
+        None,
+    ));
+    assert!(result.is_err(), "over-length pattern must be rejected");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("too long") || msg.contains("256"),
+        "error must mention length: {msg}"
+    );
+}
+
+// ─── remote symlink guard (S-M1) ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn peek_remote_rejects_symlink_path() {
+    /// Mock executor that reports the path is a symbolic link via stat.
+    struct SymlinkStatExec;
+
+    #[async_trait]
+    impl SshExecutor for SymlinkStatExec {
+        async fn exec(
+            &self,
+            _: &HostConfig,
+            program: &str,
+            _args: &[&str],
+        ) -> anyhow::Result<CommandOutput> {
+            match program {
+                "stat" => Ok(CommandOutput {
+                    stdout: "symbolic link\t0".into(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                }),
+                other => anyhow::bail!("unexpected program: {other}"),
+            }
+        }
+    }
+
+    let mut host = HostConfig::local();
+    host.name = "remote".into();
+    host.host = "remote.example".into();
+    host.protocol = crate::synapse::HostProtocol::Ssh;
+    host.scout_read_roots = vec!["/tmp".into()];
+
+    let result = super::peek(&host, &SymlinkStatExec, "/tmp/link", false, 3).await;
+    assert!(result.is_err(), "remote symlink must be rejected");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("symbolic link") || msg.contains("symlink"),
+        "error must mention symlink: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn delta_remote_rejects_symlink_path() {
+    /// Mock executor that reports the source path is a symbolic link via stat.
+    struct SymlinkStatExec;
+
+    #[async_trait]
+    impl SshExecutor for SymlinkStatExec {
+        async fn exec(
+            &self,
+            _: &HostConfig,
+            program: &str,
+            _args: &[&str],
+        ) -> anyhow::Result<CommandOutput> {
+            match program {
+                "stat" => Ok(CommandOutput {
+                    stdout: "symbolic link".into(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                }),
+                other => anyhow::bail!("unexpected program: {other}"),
+            }
+        }
+    }
+
+    let mut host = HostConfig::local();
+    host.name = "remote".into();
+    host.host = "remote.example".into();
+    host.protocol = crate::synapse::HostProtocol::Ssh;
+    host.scout_read_roots = vec!["/tmp".into()];
+
+    let result = super::delta(
+        &host,
+        &SymlinkStatExec,
+        "/tmp/link",
+        None,
+        None,
+        Some("expected content"),
+    )
+    .await;
+    assert!(result.is_err(), "delta must reject remote symlink source");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("symbolic link") || msg.contains("symlink"),
+        "error must mention symlink: {msg}"
+    );
 }
 
 struct NoopExec;

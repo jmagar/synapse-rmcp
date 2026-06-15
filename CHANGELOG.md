@@ -65,8 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Reached full synapse-mcp parity (B17)** — all 59 production actions from
-  `synapse-mcp/docs/INVENTORY.md` are now implemented and verified in synapse2:
+- **Reached action-level synapse-mcp parity (B17)** — all 59 production actions from
+  `synapse-mcp/docs/INVENTORY.md` are now implemented and verified in synapse2.
+  Note: some TypeScript-original features are not yet ported (claude/channel
+  notifications, templated MCP resources, root-SSH gate, TOFU fingerprint store,
+  `SYNAPSE_EXCLUDE_HOSTS`, `SYNAPSE_MCP_ALLOW_YOLO`, `SYNAPSE_DEBUG_ERRORS`, `git`
+  in the exec allowlist). See README "Known Parity Gaps" for details.
 
   **`flux docker`** (9 actions): `info`, `df`, `images`, `networks`, `volumes`,
   `pull`, `build`, `rmi`, `prune` — full Docker daemon management including
