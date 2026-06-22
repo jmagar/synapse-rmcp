@@ -26,7 +26,7 @@
 #   docker inspect --format '{{index .RepoDigests 0}}' node:26-bookworm-slim
 # Then replace the tag below with:
 #   FROM node@sha256:<digest> AS web  # node:26-bookworm-slim
-FROM node:26.3.0-bookworm-slim AS web
+FROM node:26.3.1-bookworm-slim AS web
 
 WORKDIR /app/apps/web
 
