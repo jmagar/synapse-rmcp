@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${SYNAPSE_RMCP_REPO:-jmagar/synapse2}"
+REPO="${SYNAPSE_RMCP_REPO:-jmagar/synapse-rmcp}"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 VERSION="${SYNAPSE_RMCP_VERSION:-latest}"
 RELEASE_BASE_URL="${SYNAPSE_RMCP_RELEASE_BASE_URL:-}"
@@ -14,7 +14,7 @@ Install synapse from GitHub Releases.
 Environment:
   INSTALL_DIR      Destination directory (default: ~/.local/bin)
   SYNAPSE_RMCP_VERSION Release tag such as v0.5.2 (default: latest)
-  SYNAPSE_RMCP_REPO    GitHub repo owner/name (default: jmagar/synapse2)
+  SYNAPSE_RMCP_REPO    GitHub repo owner/name (default: jmagar/synapse-rmcp)
 USAGE
 }
 
@@ -39,9 +39,6 @@ target_asset() {
   case "${os}:${arch}" in
     linux:x86_64|linux:amd64)
       printf '%s-x86_64.tar.gz' "${BINARY_NAME}"
-      ;;
-    mingw*:x86_64|msys*:x86_64|cygwin*:x86_64)
-      printf '%s-windows-x86_64.tar.gz' "${BINARY_NAME}"
       ;;
     *)
       printf 'error: unsupported platform %s/%s

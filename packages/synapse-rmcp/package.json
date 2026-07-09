@@ -3,14 +3,14 @@
   "version": "0.5.2",
   "description": "Node launcher for the synapse Rust MCP server and CLI binary.",
   "license": "MIT",
-  "homepage": "https://github.com/jmagar/synapse2#readme",
+  "homepage": "https://github.com/jmagar/synapse-rmcp#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jmagar/synapse2.git",
+    "url": "git+https://github.com/jmagar/synapse-rmcp.git",
     "directory": "packages/synapse-rmcp"
   },
   "bugs": {
-    "url": "https://github.com/jmagar/synapse2/issues"
+    "url": "https://github.com/jmagar/synapse-rmcp/issues"
   },
   "bin": {
     "synapse": "bin/synapse.js"

@@ -14,14 +14,7 @@ function targetFor(platform = process.platform, arch = process.arch) {
     };
   }
 
-  if (platform === "win32" && arch === "x64") {
-    return {
-      asset: "synapse-windows-x86_64.tar.gz",
-      binary: "synapse.exe",
-    };
-  }
-
-  throw new Error(`Unsupported platform ${platform}/${arch}. Supported targets: linux/x64, win32/x64.`);
+  throw new Error(`Unsupported platform ${platform}/${arch}. Supported targets: linux/x64.`);
 }
 
 function releaseVersion(env = process.env) {
@@ -30,7 +23,7 @@ function releaseVersion(env = process.env) {
 }
 
 function releaseBaseUrl(env = process.env) {
-  const repo = env.SYNAPSE_RMCP_REPO || "jmagar/synapse2";
+  const repo = env.SYNAPSE_RMCP_REPO || "jmagar/synapse-rmcp";
   return env.SYNAPSE_RMCP_RELEASE_BASE_URL || `https://github.com/${repo}/releases/download`;
 }
 
