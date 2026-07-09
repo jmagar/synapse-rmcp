@@ -16,7 +16,7 @@ resolver = "2"
 
 [package]
 name = "synapse2"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 rust-version = "1.90"
 description = "Rust MCP and CLI server for local Synapse workflows (flux + scout tools)"
