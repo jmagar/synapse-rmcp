@@ -113,9 +113,7 @@ fn plugin_setup_delegates_to_binary_owned_hook_command() {
         "plugin setup should delegate to the verified bundled binary path"
     );
     assert!(
-        setup
-            .find("synapse_bin=\"$(synapse_binary)\"")
-            .unwrap()
+        setup.find("synapse_bin=\"$(synapse_binary)\"").unwrap()
             < setup.find("export_if_set SYNAPSE_MCP_TOKEN").unwrap(),
         "plugin setup should verify the bundled binary before exporting secrets"
     );

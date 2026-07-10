@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Synapse2 REST API",
-    "version": "0.5.2",
+    "version": "0.5.3",
     "description": "Generated OpenAPI schema for Synapse2's REST surface. Auth modes: loopback/trusted-gateway deployments may have no local auth; mounted bearer mode uses SYNAPSE_MCP_TOKEN; OAuth mode uses bearer JWTs. REST actions require their action-specific scopes when auth is mounted."
   },
   "servers": [
