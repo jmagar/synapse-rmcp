@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
                Format: ## [X.Y.Z] — YYYY-MM-DD
                Use Added / Changed / Deprecated / Removed / Fixed / Security headers. -->
 
+## [0.5.3](https://github.com/jmagar/synapse-rmcp/compare/v0.5.2...v0.5.3) (2026-07-11)
+
+
+### Fixed
+
+* update trivy action pin ([066a2b3](https://github.com/jmagar/synapse-rmcp/commit/066a2b355c2f8022880d4541108536cc4f13f514))
+
 ## [Unreleased]
 
 <!-- TEMPLATE: Add changes here as you work. They move to a version section on release. -->
