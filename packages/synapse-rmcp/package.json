@@ -1,7 +1,7 @@
 {
   "name": "synapse-rmcp",
   "version": "0.5.3",
-  "description": "Node launcher for the synapse Rust MCP server and CLI binary.",
+  "description": "Node launcher for the Synapse Rust MCP server and CLI for Docker, host, SSH, log, ZFS, and file workflows.",
   "license": "MIT",
   "homepage": "https://github.com/jmagar/synapse-rmcp#readme",
   "repository": {
@@ -31,7 +31,22 @@
   },
   "keywords": [
     "mcp",
-    "synapse",
-    "automation"
+    "mcp-server",
+    "model-context-protocol",
+    "rmcp",
+    "rust",
+    "cli",
+    "homelab",
+    "docker",
+    "docker-compose",
+    "ssh",
+    "zfs",
+    "logs",
+    "file-operations",
+    "host-inspection",
+    "automation",
+    "claude-code",
+    "codex",
+    "gemini"
   ]
 }
