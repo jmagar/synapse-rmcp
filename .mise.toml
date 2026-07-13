@@ -1,0 +1,5 @@
+[tools]
+# Exact pnpm follows apps/web/package.json's packageManager contract. Update the
+# package manifest, lockfile, and this file together when moving pnpm.
+pnpm = "10.33.2"
+node = "lts"
