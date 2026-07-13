@@ -64,6 +64,7 @@ current recipe list.
 | Recipe | Purpose |
 |---|---|
 | `just build-plugin` | Copy release binary to `bin/synapse` and `plugins/synapse2/bin/synapse`. |
+| `just sync-bin` | Explicit alias for refreshing repo and plugin binary artifacts. |
 | `just validate-plugin` | Validate Claude/Codex/Gemini plugin manifests and skills. |
 | `just dist` | `cargo xtask dist` build and copy release artifacts. |
 | `just ci` | `cargo xtask ci` full local CI. |

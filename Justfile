@@ -354,6 +354,9 @@ build-plugin: build-release
     install -m 755 "${target_dir}/release/synapse" plugins/synapse2/bin/synapse
     echo "Installed bin/synapse and plugins/synapse2/bin/synapse"
 
+# Explicit binary artifact sync. This replaces hidden Cargo rustc-wrapper side effects.
+sync-bin: build-plugin
+
 # Install the release binary into bin/ (alias for build-plugin kept for compatibility)
 install: build-plugin
 
