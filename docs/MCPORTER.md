@@ -53,10 +53,10 @@ synapse2 exposes two real MCP tools: `flux` (Docker: docker / container / host /
 
 - auth rejection when `SYNAPSE_MCP_TOKEN` is set (unauthenticated and bad-token both return HTTP 401)
 - `scout` semantic behavior: `nodes` returns a `hosts` array, `help` returns `tool == "scout"` with a `topics` index
-- `flux` semantic behavior: `docker info` and `host status` return the fanout envelope (`count`, the per-action result list, `partial`); `help` returns `tool == "flux"` with the docker action group
-- MCP resource behavior for `synapse://schema/flux` and `synapse://schema/scout` (both return the full tool-definitions array containing `flux` and `scout`)
+- `flux` semantic behavior: `docker info` returns its stable formatted heading, `host status` returns a bounded fanout envelope (`count` and `status` list), and `help` returns `tool == "flux"` with the docker action group
+- MCP resource behavior for `synapse://schema/flux` and `synapse://schema/scout` (each returns its matching tool definition)
 
-The flux/host checks assert the always-present fanout envelope keys rather than inner daemon data, so they pass whether or not the configured hosts are reachable. The resource suite prefers mcporter resource commands when available and falls back to JSON-RPC `resources/read` for older mcporter versions. Bearer-auth tool calls fall back to JSON-RPC `tools/call` when the installed mcporter does not yet support HTTP headers on `mcporter call`.
+The host-status checks assert the always-present bounded fanout envelope rather than inner daemon data, so they pass whether or not configured hosts are reachable. Docker info uses its Markdown heading because the full JSON payload can exceed the response cap on multi-host deployments. Tool calls run through mcporter; resource reads use JSON-RPC directly because mcporter 0.12 does not accept ad-hoc HTTP resource URLs. Bearer-auth tool calls fall back to JSON-RPC `tools/call` when an older mcporter does not support HTTP headers on `mcporter call`.
 
 ## Test philosophy
 
@@ -64,11 +64,11 @@ Use semantic assertions, not liveness-only checks:
 
 ```bash
 # Bad test — only proves MCP responded
-run_test "scout nodes" "scout" '{"action":"nodes"}'
+run_test "scout nodes" "scout" '{"action":"nodes","response_format":"json"}'
 
 # Good test — proves the service actually returned the right shape
-run_test "scout nodes returns hosts" "scout" '{"action":"nodes"}' "hosts"
-run_test_semantic "flux help tool name" "flux" '{"action":"help"}' "tool" "flux" "exact"
+run_test "scout nodes returns hosts" "scout" '{"action":"nodes","response_format":"json"}' "hosts" "array"
+run_test_semantic "flux help tool name" "flux" '{"action":"help","format":"json"}' "tool" "flux" "exact"
 ```
 
 A test that checks `is_error: false` is not a good test — it only verifies the MCP protocol layer responded. Semantic tests check that the actual service data is present and structurally correct.
@@ -93,13 +93,13 @@ assert node is not None and node != '' and node != [] and node != {}
 
 ## Resource validation
 
-MCP resources are public contract, not implementation detail. Test every stable resource URI. For the schema resources (`synapse://schema/flux` and `synapse://schema/scout`, which both return the full tool-definitions array):
+MCP resources are public contract, not implementation detail. Test every stable resource URI. For the schema resources (`synapse://schema/flux` and `synapse://schema/scout`, each of which returns its matching tool definition):
 
 - The resource URI resolves.
-- The returned content parses as a JSON array.
-- The array contains tool definitions named `flux` and `scout`.
-- Each tool's `inputSchema.type` is `object`.
-- Each tool's `inputSchema.properties.action` exists.
+- The returned content parses as one JSON object.
+- The tool definition name matches the resource URI (`flux` or `scout`).
+- The tool's `inputSchema.type` is `object`.
+- The tool's `inputSchema.properties.action` exists.
 
 ## Generated CLIs
 

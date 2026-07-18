@@ -75,7 +75,7 @@ Rust tests that make template automation visible and hard to drift:
 
 ### `mcporter/test-mcp.sh` — Live MCP integration
 
-Bash script that hits a running server over HTTP using `mcporter` for tool calls and, when supported by the installed mcporter version, resource reads. It falls back to JSON-RPC `resources/read` for older mcporter versions.
+Bash script that hits a running server over HTTP using `mcporter` for tool calls. Resource reads use JSON-RPC directly because mcporter 0.12 does not accept ad-hoc HTTP resource URLs.
 
 ```bash
 # Run all suites sequentially
@@ -96,9 +96,8 @@ Prerequisites:
 
 | Tool | Purpose |
 |---|---|
-| `mcporter` | MCP tool/resource client. |
-| `curl` | Health/auth smoke and JSON-RPC fallback. |
-| `jq` | Shell JSON checks. |
+| `mcporter` | MCP tool client. |
+| `curl` | Health/auth smoke and JSON-RPC resource reads. |
 | `python3` | Portable JSON parsing. |
 
 Suites:
@@ -109,7 +108,7 @@ Suites:
 | `suite_core` | Read-only `flux`/`scout` actions and help return semantically correct values. |
 | `suite_schema_resource` | `synapse://schema/flux` and `synapse://schema/scout` resolve and contain valid tool schemas with `inputSchema.properties.action`. |
 
-The script logs all calls to `/tmp/test-mcp.<timestamp>.log`.
+The script writes mode-0600 logs in a private temporary directory. Successful runs remove the log; failed runs preserve and report its path.
 
 > Template rule: adapt `suite_core` and resource assertions when adding service-specific actions or resources. Non-destructive live actions only.
 

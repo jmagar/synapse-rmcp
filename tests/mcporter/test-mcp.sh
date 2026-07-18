@@ -19,21 +19,21 @@
 #   compose down/restart/recreate, scout exec/emit/beam) require elicitation
 #   confirmation and are intentionally never called here.
 #
-#   Because Docker/SSH connectivity is environment-dependent, the flux/host
-#   checks assert the *always-present* fanout envelope keys (`count`, `partial`,
-#   and the per-action result list) rather than inner daemon data — so they pass
-#   whether the target hosts are reachable or not. `scout nodes` is the one
+#   Because Docker/SSH connectivity is environment-dependent, Docker info checks
+#   its bounded Markdown heading and host status checks the always-present fanout
+#   envelope rather than inner daemon data. They pass whether targets are
+#   reachable or not. `scout nodes` is the one
 #   data-level check that is safe everywhere: it reads host config only, no
 #   network. It asserts a `hosts` array is present (and, if the server has any
 #   hosts configured, non-empty).
 #
 #   The checks performed:
 #     scout nodes                     → response has a `hosts` array
-#     flux docker info                → fanout envelope: `count` + `info` array + `partial`
+#     flux docker info                → bounded Markdown begins with "Docker System Info"
 #     flux host status                → fanout envelope: `count` + `status` + `partial`
 #     flux help / scout help          → `.tool` == "flux"/"scout", `topics` present
-#     synapse://schema/flux  resource → array containing tools flux & scout w/ inputSchema
-#     synapse://schema/scout resource → same (both URIs return the full tool array)
+#     synapse://schema/flux  resource → flux tool definition w/ inputSchema.action
+#     synapse://schema/scout resource → scout tool definition w/ inputSchema.action
 #
 # Server is assumed to be running as HTTP on localhost:40080 (the `just dev` port).
 # Credentials are sourced from ~/.synapse2/.env OR environment variables:
@@ -66,7 +66,10 @@ readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 readonly SCRIPT_NAME="$(basename -- "${BASH_SOURCE[0]}")"
 readonly TS_START="$(date +%s%N)"
-readonly LOG_FILE="${TMPDIR:-/tmp}/${SCRIPT_NAME%.sh}.$(date +%Y%m%d-%H%M%S).log"
+LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/synapse-mcporter.XXXXXX")" || exit 2
+readonly LOG_DIR
+readonly LOG_FILE="${LOG_DIR}/${SCRIPT_NAME%.sh}.log"
+(umask 077; : > "${LOG_FILE}") || exit 2
 
 # synapse2 stores credentials in its appdata dir (SERVICE_HOME_DIRNAME = .synapse2).
 readonly ENV_FILE="${HOME}/.synapse2/.env"
@@ -93,6 +96,8 @@ declare -a FAIL_NAMES=()
 # Runtime globals — populated in load_env
 MCP_URL=''
 MCPORTER_HEADER_ARGS=()
+CURL_HEADER_ARGS=()
+MCPORTER_SUPPORTS_HEADERS=false
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 parse_args() {
@@ -117,7 +122,12 @@ log_error() { printf "${C_RED}[ERROR]${C_RESET} %s\n" "$*" | tee -a "${LOG_FILE}
 
 cleanup() {
   local rc=$?
-  [[ $rc -ne 0 ]] && log_warn "Script exited with rc=${rc}. Log: ${LOG_FILE}"
+  if [[ $rc -ne 0 ]]; then
+    log_warn "Script exited with rc=${rc}. Log: ${LOG_FILE}"
+  else
+    rm -f -- "${LOG_FILE}"
+    rmdir -- "${LOG_DIR}"
+  fi
 }
 trap cleanup EXIT
 
@@ -139,8 +149,10 @@ load_env() {
 
   local token="${SYNAPSE_MCP_TOKEN:-}"
   MCPORTER_HEADER_ARGS=()
+  CURL_HEADER_ARGS=()
   if [[ -n "${token}" ]]; then
-    MCPORTER_HEADER_ARGS+=(--header "Authorization: Bearer ${token}")
+    MCPORTER_HEADER_ARGS+=(--header "Authorization=Bearer ${token}")
+    CURL_HEADER_ARGS+=(-H "Authorization: Bearer ${token}")
   fi
 
   log_info "MCP URL: ${MCP_URL}"
@@ -157,7 +169,6 @@ check_prerequisites() {
   command -v mcporter &>/dev/null || { log_error "mcporter not found in PATH"; missing=true; }
   command -v python3  &>/dev/null || { log_error "python3 not found in PATH";  missing=true; }
   command -v curl     &>/dev/null || { log_error "curl not found in PATH";     missing=true; }
-  command -v jq       &>/dev/null || { log_error "jq not found in PATH";       missing=true; }
   [[ "${missing}" == true ]] && return 2
   return 0
 }
@@ -189,7 +200,7 @@ smoke_test_server() {
       -X POST "${MCP_URL}" \
       -H "Content-Type: application/json" \
       -H "Accept: application/json, text/event-stream" \
-      ${MCPORTER_HEADER_ARGS[@]+"${MCPORTER_HEADER_ARGS[@]}"} \
+      ${CURL_HEADER_ARGS[@]+"${CURL_HEADER_ARGS[@]}"} \
       -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' 2>/dev/null | \
     python3 -c "
 import sys, json
@@ -210,7 +221,73 @@ print(len(d.get('result', {}).get('tools', [])))
 # Makes a single MCP tool call via mcporter (or JSON-RPC fallback) and returns
 # the JSON output. The synapse2 tools are `flux` and `scout`.
 mcporter_supports_headers() {
-  mcporter call --help 2>/dev/null | grep -q -- '--header'
+  [[ "${MCPORTER_SUPPORTS_HEADERS}" == true ]]
+}
+
+detect_mcporter_capabilities() {
+  local call_help
+  call_help="$(mcporter call --help 2>&1 || true)"
+  [[ "${call_help}" == *"--header"* ]] && MCPORTER_SUPPORTS_HEADERS=true
+}
+
+normalize_mcporter_tool_output() {
+  python3 -c '
+import json, sys
+
+outer = json.load(sys.stdin)
+if isinstance(outer, dict) and isinstance(outer.get("result"), dict):
+    outer = outer["result"]
+if not isinstance(outer, dict):
+    print(json.dumps(outer))
+    raise SystemExit
+
+structured = outer.get("structuredContent", outer.get("structured_content"))
+is_error = outer.get("isError", outer.get("is_error")) is True
+if is_error:
+    details = structured
+    content = outer.get("content")
+    if details is None and isinstance(content, list) and content:
+        first = content[0]
+        if isinstance(first, dict):
+            details = first.get("json", first.get("text"))
+    print(json.dumps({"error": details or "MCP tool returned isError=true"}))
+    raise SystemExit
+
+if structured is not None:
+    print(json.dumps(structured))
+    raise SystemExit
+
+content = outer.get("content")
+if isinstance(content, list) and content:
+    first = content[0]
+    if isinstance(first, dict):
+        if isinstance(first.get("json"), (dict, list)):
+            print(json.dumps(first["json"]))
+            raise SystemExit
+        text = first.get("text")
+        if isinstance(text, str):
+            try:
+                print(json.dumps(json.loads(text)))
+            except json.JSONDecodeError:
+                print(json.dumps(outer))
+            raise SystemExit
+
+print(json.dumps(outer))
+'
+}
+
+test_output_normalizer() {
+  local output
+
+  output="$(printf '%s' '{"isError":true,"structuredContent":{"tool":"flux"}}' \
+    | normalize_mcporter_tool_output)" || return 1
+  python3 -c 'import json,sys; assert "error" in json.loads(sys.argv[1])' "${output}" \
+    || return 1
+
+  output="$(printf '%s' '{"jsonrpc":"2.0","result":{"content":[{"type":"text","text":"{\"tool\":\"flux\"}"}],"isError":false}}' \
+    | normalize_mcporter_tool_output)" || return 1
+  python3 -c 'import json,sys; assert json.loads(sys.argv[1]) == {"tool":"flux"}' "${output}" \
+    || return 1
 }
 
 jsonrpc_tool_call() {
@@ -231,29 +308,9 @@ print(json.dumps({
     -X POST "${MCP_URL}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json, text/event-stream" \
-    ${MCPORTER_HEADER_ARGS[@]+"${MCPORTER_HEADER_ARGS[@]}"} \
+    ${CURL_HEADER_ARGS[@]+"${CURL_HEADER_ARGS[@]}"} \
     -d "${payload}" 2>>"${LOG_FILE}" \
-    | python3 -c '
-import json, sys
-try:
-    outer = json.load(sys.stdin)
-    if "error" in outer:
-        print(json.dumps({"error": outer["error"]}, indent=2))
-        sys.exit(0)
-    content = outer.get("result", {}).get("content", [])
-    first = content[0] if content else {}
-    if isinstance(first, dict) and isinstance(first.get("json"), dict):
-        print(json.dumps(first["json"], indent=2))
-        sys.exit(0)
-    text = first.get("text", "") if isinstance(first, dict) else ""
-    if text:
-        parsed = json.loads(text)
-        print(json.dumps(parsed, indent=2))
-        sys.exit(0)
-    print(json.dumps({"error": "empty tool result"}, indent=2))
-except Exception as exc:
-    print(json.dumps({"error": str(exc)}, indent=2))
-'
+    | normalize_mcporter_tool_output
 }
 
 mcporter_call() {
@@ -267,7 +324,8 @@ mcporter_call() {
     return
   fi
 
-  mcporter call \
+  local output
+  output="$(mcporter call \
     --http-url "${MCP_URL}" \
     --allow-http \
     ${MCPORTER_HEADER_ARGS[@]+"${MCPORTER_HEADER_ARGS[@]}"} \
@@ -275,46 +333,19 @@ mcporter_call() {
     --args "${args_json}" \
     --timeout "${CALL_TIMEOUT_MS}" \
     --output json \
-    2>>"${LOG_FILE}"
+    2>>"${LOG_FILE}")" || return
+  printf '%s' "${output}" | normalize_mcporter_tool_output
 }
 
-# Reads an MCP resource. Newer mcporter builds can exercise resources directly;
-# keep a JSON-RPC fallback so this harness remains compatible with older local
-# versions while still preferring mcporter when the command is available.
+# mcporter 0.12 does not accept an ad-hoc HTTP URL for resource reads, so use
+# the protocol directly while keeping tool calls on mcporter itself.
 mcporter_read_resource() {
   local resource_uri="${1:?resource URI required}"
-
-  if mcporter resource read --help >/dev/null 2>&1; then
-    mcporter resource read \
-      --http-url "${MCP_URL}" \
-      --allow-http \
-      ${MCPORTER_HEADER_ARGS[@]+"${MCPORTER_HEADER_ARGS[@]}"} \
-      --uri "${resource_uri}" \
-      --timeout "${CALL_TIMEOUT_MS}" \
-      --output json \
-      2>>"${LOG_FILE}"
-    return
-  fi
-
-  if mcporter resources read --help >/dev/null 2>&1; then
-    mcporter resources read \
-      --http-url "${MCP_URL}" \
-      --allow-http \
-      ${MCPORTER_HEADER_ARGS[@]+"${MCPORTER_HEADER_ARGS[@]}"} \
-      --uri "${resource_uri}" \
-      --timeout "${CALL_TIMEOUT_MS}" \
-      --output json \
-      2>>"${LOG_FILE}"
-    return
-  fi
-
-  printf "${C_YELLOW}[WARN]${C_RESET}  mcporter resource command unavailable; falling back to JSON-RPC resources/read\n" \
-    | tee -a "${LOG_FILE}" >&2
-  curl -sf --max-time 15 \
+  curl -sf --max-time "$(( (CALL_TIMEOUT_MS + 999) / 1000 ))" \
     -X POST "${MCP_URL}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json, text/event-stream" \
-    ${MCPORTER_HEADER_ARGS[@]+"${MCPORTER_HEADER_ARGS[@]}"} \
+    ${CURL_HEADER_ARGS[@]+"${CURL_HEADER_ARGS[@]}"} \
     -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"resources/read\",\"params\":{\"uri\":\"${resource_uri}\"}}" \
     2>/dev/null
 }
@@ -324,6 +355,7 @@ mcporter_read_resource() {
 # Use run_test_semantic (below) when you can validate actual values.
 run_test() {
   local label="${1:?}" tool="${2:?}" args="${3:?}" expected_key="${4:-}"
+  local expected_type="${5:-}"
   local t0 output elapsed_ms json_check
 
   t0="$(date +%s%N)"
@@ -365,7 +397,18 @@ try:
     node = d
     for k in keys:
         node = node[int(k)] if (isinstance(node, list) and k.isdigit()) else node[k]
-    print('ok')
+    expected_type = '${expected_type}'
+    type_matches = {
+        'array': lambda value: isinstance(value, list),
+        'object': lambda value: isinstance(value, dict),
+        'integer': lambda value: isinstance(value, int) and not isinstance(value, bool),
+        'boolean': lambda value: isinstance(value, bool),
+        'string': lambda value: isinstance(value, str),
+    }
+    if expected_type and not type_matches[expected_type](node):
+        print('wrong_type: expected ' + expected_type + ', got ' + type(node).__name__)
+    else:
+        print('ok')
 except Exception as e:
     print('missing: ' + str(e))
 " 2>/dev/null
@@ -516,10 +559,9 @@ suite_auth() {
 # response shapes. Only READ-ONLY / non-destructive actions are exercised.
 #
 # Connectivity note: flux docker/host actions fan out across configured hosts
-# and may have zero reachable daemons in a clean environment. The fanout
-# envelope keys (`count`, `partial`, and the per-action result list) are ALWAYS
-# present regardless of connectivity, so the assertions below check those rather
-# than inner daemon fields — they pass whether or not the hosts are up.
+# and may have zero reachable daemons in a clean environment. Docker info uses
+# bounded Markdown; host status asserts its always-present JSON fanout envelope.
+# Both contracts remain valid whether or not the hosts are up.
 suite_core() {
   printf '\n%b== scout tool — read-only actions ==%b\n' "${C_BOLD}" "${C_RESET}" | tee -a "${LOG_FILE}"
 
@@ -529,78 +571,73 @@ suite_core() {
 
   # The response MUST carry a `hosts` array.
   run_test "scout nodes: returns hosts array" \
-    "scout" '{"action":"nodes"}' "hosts"
+    "scout" '{"action":"nodes","response_format":"json"}' "hosts" "array"
 
   # Stronger: the first host entry exists (proves at least one host is configured
   # AND that hosts[] is a list, not a scalar). On a host-less deployment this
   # fails meaning "no hosts configured", not "broken" — see header note.
   run_test "scout nodes: at least one configured host" \
-    "scout" '{"action":"nodes"}' "hosts.0.name"
+    "scout" '{"action":"nodes","response_format":"json"}' "hosts.0.name" "string"
 
   # ── scout help ──────────────────────────────────────────────────────────────
   # legacy_scout_help() returns { tool, actions, destructive, ..., topics, hint }.
 
   run_test "scout help: returns help object" \
-    "scout" '{"action":"help"}' "tool"
+    "scout" '{"action":"help","format":"json"}' "tool" "string"
 
   # The tool name in the help payload must be exactly "scout".
   run_test_semantic "scout help: tool field is scout" \
-    "scout" '{"action":"help"}' \
+    "scout" '{"action":"help","format":"json"}' \
     "tool" "scout" "exact"
 
   # The topic index must be present.
   run_test "scout help: lists topics" \
-    "scout" '{"action":"help"}' "topics"
+    "scout" '{"action":"help","format":"json"}' "topics" "array"
 
   printf '\n%b== flux tool — read-only actions ==%b\n' "${C_BOLD}" "${C_RESET}" | tee -a "${LOG_FILE}"
 
   # ── flux docker info ────────────────────────────────────────────────────────
-  # Fans out across all configured hosts (host omitted). flatten_scalar_outcome
-  # returns { "count": N, "info": [ {host, info} ], "partial": bool, "errors"?: }.
-
-  # The fanout envelope MUST carry `count` and the `info` result list.
-  run_test "flux docker info: fanout envelope has count" \
-    "flux" '{"action":"docker","subaction":"info"}' "count"
-  run_test "flux docker info: fanout envelope has info list" \
-    "flux" '{"action":"docker","subaction":"info"}' "info"
-
-  # `partial` is always present in the fanout envelope (true/false).
-  run_test "flux docker info: fanout envelope has partial flag" \
-    "flux" '{"action":"docker","subaction":"info"}' "partial"
+  # Raw Docker info can exceed the response cap on multi-host deployments. The
+  # Markdown formatter remains valid when capped, so assert its stable heading;
+  # host status below validates the bounded JSON fanout envelope.
+  run_test_semantic "flux docker info: returns formatted system info" \
+    "flux" '{"action":"docker","subaction":"info"}' \
+    "content.0.text" "Docker System Info" "contains"
 
   # ── flux host status ────────────────────────────────────────────────────────
   # Fans out; flatten_scalar_outcome with key "status":
   #   { "count": N, "status": [ ... ], "partial": bool }.
 
   run_test "flux host status: fanout envelope has count" \
-    "flux" '{"action":"host","subaction":"status"}' "count"
+    "flux" '{"action":"host","subaction":"status","response_format":"json"}' "count" "integer"
   run_test "flux host status: fanout envelope has status list" \
-    "flux" '{"action":"host","subaction":"status"}' "status"
+    "flux" '{"action":"host","subaction":"status","response_format":"json"}' "status" "array"
+  run_test "flux host status: fanout envelope has partial flag" \
+    "flux" '{"action":"host","subaction":"status","response_format":"json"}' "partial" "boolean"
 
   # ── flux help ───────────────────────────────────────────────────────────────
   # legacy_flux_help() returns { tool, actions, destructive, topics, hint }.
 
   run_test "flux help: returns help object" \
-    "flux" '{"action":"help"}' "tool"
+    "flux" '{"action":"help","format":"json"}' "tool" "string"
 
   # The tool name in the help payload must be exactly "flux".
   run_test_semantic "flux help: tool field is flux" \
-    "flux" '{"action":"help"}' \
+    "flux" '{"action":"help","format":"json"}' \
     "tool" "flux" "exact"
 
   # Help must advertise the docker action group.
   run_test "flux help: lists docker actions" \
-    "flux" '{"action":"help"}' "actions.docker"
+    "flux" '{"action":"help","format":"json"}' "actions.docker" "array"
 }
 
 # ── suite_schema_resource ──────────────────────────────────────────────────────
 # synapse2 exposes two schema resource URIs:
 #     synapse://schema/flux
 #     synapse://schema/scout
-# Both return the SAME full tool-definitions array (pretty-printed JSON):
-#     [ {name:"flux", inputSchema:{...}}, {name:"scout", inputSchema:{...}} ]
-# arriving as contents[0].text. So each URI is validated by checking the array
-# contains BOTH the flux and scout tool defs, each with inputSchema.properties.action.
+# Each returns the matching tool definition as pretty-printed JSON in
+# contents[0].text. Validate that the resource name matches its URI and that
+# its input schema includes the action discriminator.
 suite_schema_resource() {
   printf '\n%b== schema resources ==%b\n' "${C_BOLD}" "${C_RESET}" | tee -a "${LOG_FILE}"
 
@@ -610,12 +647,11 @@ suite_schema_resource() {
   done
 }
 
-# Validate a single schema resource URI: it must resolve to a non-empty array
-# containing tool definitions named "flux" and "scout", each carrying an
-# inputSchema of type object with an "action" property.
+# Validate a single schema resource URI: it must resolve to the matching tool
+# definition with an object inputSchema containing an "action" property.
 check_schema_resource() {
   local resource_uri="${1:?resource URI required}"
-  local output t0 elapsed_ms
+  local expected_name="${resource_uri##*/}" output t0 elapsed_ms
 
   t0="$(date +%s%N)"
   output="$(mcporter_read_resource "${resource_uri}")" || output=''
@@ -624,7 +660,7 @@ check_schema_resource() {
   printf '%s\n' "${output}" >> "${LOG_FILE}"
   [[ "${VERBOSE}" == true ]] && printf '%s\n' "${output}"
 
-  local label="schema resource ${resource_uri}: array has flux+scout tools with inputSchema.action"
+  local label="schema resource ${resource_uri}: ${expected_name} has inputSchema.action"
 
   if [[ -z "${output}" ]]; then
     _fail "${label}" "${elapsed_ms}" "empty response from resources/read"
@@ -638,16 +674,14 @@ check_schema_resource() {
 import sys, json
 try:
     outer = json.load(sys.stdin)
-    # mcporter resource commands may return the resource JSON directly, while
-    # JSON-RPC resources/read returns result.contents[0].text.
-    if isinstance(outer, list):
-        tools = outer
-    elif isinstance(outer, dict) and 'name' in outer and 'inputSchema' in outer:
-        tools = [outer]
+    if isinstance(outer, dict) and 'error' in outer:
+        print('error: ' + str(outer['error']))
+        sys.exit(0)
+    if isinstance(outer, dict) and 'name' in outer and 'inputSchema' in outer:
+        payload = outer
     else:
         contents = outer.get('result', {}).get('contents', []) if isinstance(outer, dict) else []
         first = contents[0] if contents else {}
-        payload = None
         if isinstance(first, dict) and first.get('json') is not None:
             payload = first['json']
         else:
@@ -656,28 +690,29 @@ try:
                 print('error: empty text in resource content')
                 sys.exit(0)
             payload = json.loads(text)
-        tools = payload if isinstance(payload, list) else [payload]
 
-    if not tools:
-        print('error: schema array is empty')
+    if not isinstance(payload, dict):
+        print('error: schema resource should be one object, got ' + type(payload).__name__)
         sys.exit(0)
 
-    by_name = {t.get('name'): t for t in tools if isinstance(t, dict)}
-    for expected in ('flux', 'scout'):
-        schema = by_name.get(expected)
-        if schema is None:
-            print('missing tool def: ' + expected + ' (got: ' + ','.join(sorted(by_name)) + ')')
-            sys.exit(0)
-        input_schema = schema.get('inputSchema')
-        if not isinstance(input_schema, dict):
-            print(expected + ': missing inputSchema')
-            sys.exit(0)
-        if input_schema.get('type') != 'object':
-            print(expected + ': inputSchema.type should be object, got ' + str(input_schema.get('type')))
-            sys.exit(0)
-        if 'action' not in input_schema.get('properties', {}):
-            print(expected + ': inputSchema.properties should include \"action\"')
-            sys.exit(0)
+    expected = '${expected_name}'
+    if payload.get('name') != expected:
+        print('wrong tool def: expected ' + expected + ', got ' + str(payload.get('name')))
+        sys.exit(0)
+    input_schema = payload.get('inputSchema')
+    if not isinstance(input_schema, dict):
+        print(expected + ': missing inputSchema')
+        sys.exit(0)
+    if input_schema.get('type') != 'object':
+        print(expected + ': inputSchema.type should be object, got ' + str(input_schema.get('type')))
+        sys.exit(0)
+    properties = input_schema.get('properties')
+    if not isinstance(properties, dict):
+        print(expected + ': inputSchema.properties should be an object')
+        sys.exit(0)
+    if 'action' not in properties:
+        print(expected + ': inputSchema.properties should include \"action\"')
+        sys.exit(0)
 
     print('ok')
 except Exception as e:
@@ -771,6 +806,11 @@ main() {
   printf '%b%s%b\n\n' "${C_BOLD}" "$(printf '=%.0s' {1..65})" "${C_RESET}"
 
   check_prerequisites || exit 2
+  detect_mcporter_capabilities
+  test_output_normalizer || {
+    log_error "Internal MCP output normalizer contract failed"
+    exit 2
+  }
 
   smoke_test_server || {
     log_error ""

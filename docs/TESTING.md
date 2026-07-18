@@ -122,7 +122,7 @@ bash tests/mcporter/test-mcp.sh
 just test-mcporter
 ```
 
-The mcporter harness validates tools and resources against a running server. It logs calls to `/tmp/test-mcp.<timestamp>.log`.
+The mcporter harness validates tools and resources against a running server. It writes mode-0600 logs in a private temporary directory, removes them after a successful run, and preserves the reported path on failure for diagnosis.
 
 The test script validates:
 - auth rejection when `SYNAPSE_MCP_TOKEN` is set
