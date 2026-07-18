@@ -3,7 +3,8 @@ import { CodeBlock } from "./code-block";
 
 export function ActionCard({ action }: { action: (typeof ACTIONS)[number] }) {
   const isRestAction = action.transport === "rest";
-  const curlExample = `curl -X POST http://localhost:3100${WEB_APP_CONFIG.restEndpoint} \\
+  const apiBaseUrl = WEB_APP_CONFIG.apiBaseUrl || "http://localhost:40080";
+  const curlExample = `curl -X POST ${apiBaseUrl}${WEB_APP_CONFIG.restEndpoint} \\
   -H "Content-Type: application/json" \\
   -d '${JSON.stringify(action.example)}'`;
   const mcpExample = mcpEquivalent(action.id, action.example.params);

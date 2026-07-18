@@ -13,14 +13,17 @@ use synapse2::ssh::{SshExecutor, SshPool};
 use synapse2::synapse::{HostConfig, HostProtocol};
 
 fn localhost() -> HostConfig {
+    let port = std::env::var("SYNAPSE_TEST_SSH_PORT")
+        .ok()
+        .and_then(|value| value.parse().ok());
     HostConfig {
         name: "localhost".into(),
-        host: "localhost".into(),
+        host: std::env::var("SYNAPSE_TEST_SSH_HOST").unwrap_or_else(|_| "localhost".into()),
         port: None,
         protocol: HostProtocol::Ssh,
-        ssh_user: None,
-        ssh_key_path: None,
-        ssh_port: None,
+        ssh_user: std::env::var("SYNAPSE_TEST_SSH_USER").ok(),
+        ssh_key_path: std::env::var("SYNAPSE_TEST_SSH_KEY").ok(),
+        ssh_port: port,
         ssh_config_path: None,
         docker_socket_path: None,
         tags: Vec::new(),
@@ -39,6 +42,12 @@ async fn pool_connects_execs_and_reuses_against_localhost() {
     // this environment — skip cleanly rather than failing CI.
     let probe = pool.exec(&host, "hostname", &[]).await;
     let Ok(first) = probe else {
+        if std::env::var_os("SYNAPSE_TEST_SSH_REQUIRED").is_some() {
+            panic!(
+                "required disposable SSH fixture is unavailable: {:?}",
+                probe.err()
+            );
+        }
         eprintln!(
             "skipping ssh_pool integration test: localhost ssh unavailable ({:?})",
             probe.err()

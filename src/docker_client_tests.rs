@@ -81,6 +81,59 @@ async fn clear_empties_the_cache() {
     assert!(cache.is_empty());
 }
 
+#[tokio::test]
+async fn retargeting_an_alias_evicts_the_superseded_client() {
+    let cache = DockerClientCache::new();
+    let first = local_host("same-alias");
+    let mut second = first.clone();
+    second.port = Some(4242);
+
+    cache.client_for(&first).await.unwrap();
+    assert_eq!(cache.len(), 1);
+    cache.client_for(&second).await.unwrap();
+
+    assert_eq!(
+        cache.len(),
+        1,
+        "only the active topology identity is retained"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_alias_retargets_leave_one_consistent_active_client() {
+    let cache = std::sync::Arc::new(DockerClientCache::new());
+    let first = local_host("racing-alias");
+    let mut second = first.clone();
+    second.port = Some(4242);
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(33));
+    let mut tasks = Vec::new();
+    for index in 0..32 {
+        let cache = std::sync::Arc::clone(&cache);
+        let barrier = std::sync::Arc::clone(&barrier);
+        let host = if index % 2 == 0 {
+            first.clone()
+        } else {
+            second.clone()
+        };
+        tasks.push(tokio::spawn(async move {
+            barrier.wait().await;
+            cache.client_for(&host).await.unwrap();
+        }));
+    }
+    barrier.wait().await;
+    for task in tasks {
+        task.await.unwrap();
+    }
+
+    assert_eq!(cache.len(), 1, "only one initialized identity may remain");
+    let active = cache.active_key("racing-alias").unwrap();
+    assert!(
+        active == first.connection_key() || active == second.connection_key(),
+        "active alias must identify the retained topology"
+    );
+    assert!(cache.has_initialized_key(&active));
+}
+
 // --- transport-death classifier (BrokenPipe eviction, HIGH) ---
 
 #[test]

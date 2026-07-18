@@ -49,7 +49,8 @@ run_check() {
 run_packaging_identity_check() {
   local failed=0
 
-  grep -q 'BINARY_NAME: synapse' .github/workflows/release.yml || {
+  grep -q -- '--bin synapse' .github/workflows/release.yml &&
+    grep -q 'archive: synapse-x86_64.tar.gz' .github/workflows/release.yml || {
     printf 'release workflow must package the synapse binary\n' >&2
     failed=1
   }
@@ -57,8 +58,8 @@ run_packaging_identity_check() {
     printf 'Docker workflow must publish ghcr.io/jmagar/synapse2\n' >&2
     failed=1
   }
-  grep -q 'image-ref: ghcr.io/jmagar/synapse2:latest' .github/workflows/docker-publish.yml || {
-    printf 'Trivy scan must target ghcr.io/jmagar/synapse2:latest\n' >&2
+  grep -Fq 'image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}' .github/workflows/docker-publish.yml || {
+    printf 'Trivy scan must target the exact metadata-produced image tag\n' >&2
     failed=1
   }
 
@@ -75,6 +76,7 @@ run_check "PATTERNS.md contracts" cargo xtask patterns
 run_check "plugin layout" just validate-plugin
 run_check "schema docs" python3 scripts/check-schema-docs.py --check
 run_check "OpenAPI docs" python3 scripts/check-openapi.py --check
+run_check "identity and registry contract" python3 scripts/check-identity-contract.py
 run_check "scaffold intent contract" python3 scripts/check-scaffold-intent-contract.py
 run_check "template feature smoke" bash scripts/test-template-features.sh
 run_check "version sync" bash scripts/check-version-sync.sh

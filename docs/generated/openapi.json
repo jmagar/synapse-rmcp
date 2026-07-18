@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Synapse2 REST API",
-    "version": "0.5.3",
-    "description": "Generated OpenAPI schema for Synapse2's REST surface. Auth modes: loopback/trusted-gateway deployments may have no local auth; mounted bearer mode uses SYNAPSE_MCP_TOKEN; OAuth mode uses bearer JWTs. REST actions require their action-specific scopes when auth is mounted."
+    "version": "0.5.4",
+    "description": "Generated OpenAPI schema for Synapse2's REST surface. Loopback deployments have no HTTP auth; non-loopback deployments require SYNAPSE_MCP_TOKEN or OAuth bearer JWTs. REST actions require their action-specific scopes when auth is mounted."
   },
   "servers": [
     {
@@ -51,6 +51,38 @@
         }
       }
     },
+    "/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness probe",
+        "operationId": "getReady",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Host topology is loadable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Host topology is unavailable or timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/openapi.json": {
       "get": {
         "tags": [
@@ -58,7 +90,12 @@
         ],
         "summary": "OpenAPI schema",
         "operationId": "getOpenApiSchema",
-        "security": [],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {}
+        ],
         "responses": {
           "200": {
             "description": "Generated OpenAPI schema for the REST surface",
@@ -243,6 +280,9 @@
           "403": {
             "$ref": "#/components/responses/Forbidden"
           },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
           "500": {
             "$ref": "#/components/responses/InternalError"
           }
@@ -256,7 +296,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "opaque",
-        "description": "Static bearer token in bearer mode; OAuth mode also uses bearer JWTs. Loopback and trusted-gateway modes may not require local auth."
+        "description": "Static bearer token in bearer mode; OAuth mode also uses bearer JWTs. Loopback mode does not require HTTP auth."
       }
     },
     "schemas": {
@@ -340,6 +380,25 @@
         },
         "additionalProperties": false
       },
+      "ReadinessResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "not_ready"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "HelpResponse": {
         "type": "object",
         "required": [
@@ -379,6 +438,24 @@
         "properties": {
           "error": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OverloadResponse": {
+        "type": "object",
+        "required": [
+          "error",
+          "retryable"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "const": "server overloaded"
+          },
+          "retryable": {
+            "type": "boolean",
+            "const": true
           }
         },
         "additionalProperties": false
@@ -451,12 +528,31 @@
             }
           }
         }
+      },
+      "TooManyRequests": {
+        "description": "Concurrency limit reached; retry after the indicated delay",
+        "headers": {
+          "Retry-After": {
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/OverloadResponse"
+            }
+          }
+        }
       }
     }
   },
   "x-template": {
     "source": "scripts/check-openapi.py",
-    "action_metadata": "src/actions.rs",
+    "action_metadata": "src/actions/operations.rs",
     "rest_actions": [
       "help",
       "flux.docker.info",
@@ -473,24 +569,234 @@
       "scout.peek",
       "scout.exec"
     ],
+    "rest_operations": [
+      {
+        "name": "help",
+        "scope": "public",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": []
+      },
+      {
+        "name": "flux.docker.info",
+        "scope": "synapse:read",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": []
+      },
+      {
+        "name": "flux.docker.df",
+        "scope": "synapse:read",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": []
+      },
+      {
+        "name": "flux.docker.images",
+        "scope": "synapse:read",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": []
+      },
+      {
+        "name": "flux.docker.networks",
+        "scope": "synapse:read",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": []
+      },
+      {
+        "name": "flux.docker.volumes",
+        "scope": "synapse:read",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": []
+      },
+      {
+        "name": "flux.docker.pull",
+        "scope": "synapse:write",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": [
+          "host",
+          "image"
+        ]
+      },
+      {
+        "name": "flux.docker.build",
+        "scope": "synapse:write",
+        "transport": "Rest",
+        "destructive": true,
+        "required_params": [
+          "host",
+          "context",
+          "tag"
+        ]
+      },
+      {
+        "name": "flux.docker.rmi",
+        "scope": "synapse:write",
+        "transport": "Rest",
+        "destructive": true,
+        "required_params": [
+          "host",
+          "image",
+          "force"
+        ]
+      },
+      {
+        "name": "flux.docker.prune",
+        "scope": "synapse:write",
+        "transport": "Rest",
+        "destructive": true,
+        "required_params": [
+          "host",
+          "prune_target",
+          "force"
+        ]
+      },
+      {
+        "name": "flux.container.list",
+        "scope": "synapse:read",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": []
+      },
+      {
+        "name": "scout.nodes",
+        "scope": "synapse:read",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": []
+      },
+      {
+        "name": "scout.peek",
+        "scope": "synapse:read",
+        "transport": "Rest",
+        "destructive": false,
+        "required_params": [
+          "host",
+          "path"
+        ]
+      },
+      {
+        "name": "scout.exec",
+        "scope": "synapse:write",
+        "transport": "Rest",
+        "destructive": true,
+        "required_params": [
+          "host",
+          "command"
+        ]
+      }
+    ],
     "mcp_actions": [
       "help",
-      "docker",
-      "container",
-      "host",
-      "compose",
-      "nodes",
-      "peek",
-      "find",
-      "ps",
-      "df",
-      "delta",
-      "exec",
-      "emit",
-      "beam",
-      "zfs",
-      "logs"
+      "flux.docker.info",
+      "flux.docker.df",
+      "flux.docker.images",
+      "flux.docker.networks",
+      "flux.docker.volumes",
+      "flux.docker.pull",
+      "flux.docker.build",
+      "flux.docker.rmi",
+      "flux.docker.prune",
+      "flux.container.list",
+      "flux.container.inspect",
+      "flux.container.logs",
+      "flux.container.stats",
+      "flux.container.top",
+      "flux.container.search",
+      "flux.container.start",
+      "flux.container.stop",
+      "flux.container.restart",
+      "flux.container.pause",
+      "flux.container.resume",
+      "flux.container.pull",
+      "flux.container.recreate",
+      "flux.container.exec",
+      "flux.host.status",
+      "flux.host.info",
+      "flux.host.uptime",
+      "flux.host.resources",
+      "flux.host.services",
+      "flux.host.network",
+      "flux.host.mounts",
+      "flux.host.ports",
+      "flux.host.doctor",
+      "flux.compose.list",
+      "flux.compose.status",
+      "flux.compose.up",
+      "flux.compose.down",
+      "flux.compose.restart",
+      "flux.compose.recreate",
+      "flux.compose.logs",
+      "flux.compose.build",
+      "flux.compose.pull",
+      "flux.compose.refresh",
+      "scout.nodes",
+      "scout.peek",
+      "scout.find",
+      "scout.ps",
+      "scout.df",
+      "scout.delta",
+      "scout.exec",
+      "scout.emit",
+      "scout.beam",
+      "scout.zfs.pools",
+      "scout.zfs.datasets",
+      "scout.zfs.snapshots",
+      "scout.logs.syslog",
+      "scout.logs.journal",
+      "scout.logs.dmesg",
+      "scout.logs.auth"
     ],
-    "mcp_only_actions": []
+    "mcp_only_actions": [
+      "flux.container.inspect",
+      "flux.container.logs",
+      "flux.container.stats",
+      "flux.container.top",
+      "flux.container.search",
+      "flux.container.start",
+      "flux.container.stop",
+      "flux.container.restart",
+      "flux.container.pause",
+      "flux.container.resume",
+      "flux.container.pull",
+      "flux.container.recreate",
+      "flux.container.exec",
+      "flux.host.status",
+      "flux.host.info",
+      "flux.host.uptime",
+      "flux.host.resources",
+      "flux.host.services",
+      "flux.host.network",
+      "flux.host.mounts",
+      "flux.host.ports",
+      "flux.host.doctor",
+      "flux.compose.list",
+      "flux.compose.status",
+      "flux.compose.up",
+      "flux.compose.down",
+      "flux.compose.restart",
+      "flux.compose.recreate",
+      "flux.compose.logs",
+      "flux.compose.build",
+      "flux.compose.pull",
+      "flux.compose.refresh",
+      "scout.find",
+      "scout.ps",
+      "scout.df",
+      "scout.delta",
+      "scout.emit",
+      "scout.beam",
+      "scout.zfs.pools",
+      "scout.zfs.datasets",
+      "scout.zfs.snapshots",
+      "scout.logs.syslog",
+      "scout.logs.journal",
+      "scout.logs.dmesg",
+      "scout.logs.auth"
+    ]
   }
 }

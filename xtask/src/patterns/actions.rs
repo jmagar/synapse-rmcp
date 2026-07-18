@@ -6,15 +6,14 @@ const ACTION_TEST_COVERAGE_EXCEPTIONS: &[&str] = &[
 ];
 
 pub(super) fn action_surfaces(reporter: &mut PatternReporter) {
-    let actions_text = read_file("src/actions.rs");
-    let action_specs = action_specs_body(&actions_text).unwrap_or(&actions_text);
+    let actions_text = read_file("src/actions/operations.rs");
+    let action_specs = operation_specs_body(&actions_text).unwrap_or(&actions_text);
     let action_names = extract_action_names(action_specs);
-    let mcp_only = extract_mcp_only_actions(action_specs);
 
     if action_names.is_empty() {
         reporter.fail(
             "actions",
-            "could not parse ACTION_SPECS from src/actions.rs",
+            "could not parse OPERATION_SPECS from src/actions/operations.rs",
         );
         return;
     }
@@ -50,7 +49,7 @@ pub(super) fn action_surfaces(reporter: &mut PatternReporter) {
         .collect::<Vec<_>>();
     let missing_cli = action_names
         .iter()
-        .filter(|action| action.as_str() != "help" && !mcp_only.contains(action))
+        .filter(|action| action.as_str() != "help")
         .filter(|action| {
             !cli.contains(&format!("\"{action}\"")) && !cli.contains(&variant_name(action))
         })
@@ -114,37 +113,23 @@ fn has_help_entry(help: &str, action: &str) -> bool {
         || help.contains(&format!("m.insert(\"{action}:"))
 }
 
-fn action_specs_body(text: &str) -> Option<&str> {
-    let start = text.find("ACTION_SPECS")?;
+fn operation_specs_body(text: &str) -> Option<&str> {
+    let start = text.find("OPERATION_SPECS")?;
     let after_start = &text[start..];
     let end = after_start.find("];")?;
     Some(&after_start[..end])
 }
 
 fn extract_action_names(text: &str) -> Vec<String> {
-    text.lines()
-        .filter_map(|line| {
-            let (_, after_name) = line.split_once("name:")?;
-            let start = after_name.find('"')? + 1;
-            let rest = &after_name[start..];
-            let end = rest.find('"')?;
-            Some(rest[..end].to_string())
-        })
-        .collect()
-}
-
-fn extract_mcp_only_actions(text: &str) -> Vec<String> {
     let mut actions = Vec::new();
-    for block in text.split("ActionSpec").skip(1) {
-        let Some(end) = block.find('}') else {
+    for line in text.lines().filter(|line| line.contains("operation!(")) {
+        let quoted = line.split('"').collect::<Vec<_>>();
+        let Some(action) = quoted.get(3) else {
             continue;
         };
-        let block = &block[..end];
-        if !block.contains("ActionTransport::McpOnly") {
-            continue;
-        }
-        if let Some(name) = extract_action_names(block).into_iter().next() {
-            actions.push(name);
+        let action = (*action).to_owned();
+        if !actions.contains(&action) {
+            actions.push(action);
         }
     }
     actions
@@ -169,17 +154,10 @@ mod tests {
     use super::*;
 
     const ACTIONS: &str = r#"
-pub const ACTION_SPECS: &[ActionSpec] = &[
-    ActionSpec {
-        name: "greet",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-    },
-    ActionSpec {
-        name: "elicit_name",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::McpOnly,
-    },
+pub const OPERATION_SPECS: &[OperationSpec] = &[
+    operation!("flux.greet", Flux, "greet", None, Some(READ_SCOPE), false, Rest, []),
+    operation!("scout.elicit_name", Scout, "elicit_name", None, Some(READ_SCOPE), false, McpOnly, []),
+    operation!("scout.greet", Scout, "greet", None, Some(READ_SCOPE), false, McpOnly, []),
 ];
 
 pub fn rest_help() {
@@ -188,22 +166,16 @@ pub fn rest_help() {
 "#;
 
     #[test]
-    fn action_specs_body_limits_parsing_to_metadata_block() {
-        let body = action_specs_body(ACTIONS).expect("ACTION_SPECS body should parse");
+    fn operation_specs_body_limits_parsing_to_metadata_block() {
+        let body = operation_specs_body(ACTIONS).expect("OPERATION_SPECS body should parse");
         assert!(body.contains("greet"));
         assert!(!body.contains("Alice"));
     }
 
     #[test]
     fn action_name_parser_ignores_non_metadata_names() {
-        let body = action_specs_body(ACTIONS).unwrap();
+        let body = operation_specs_body(ACTIONS).unwrap();
         assert_eq!(extract_action_names(body), vec!["greet", "elicit_name"]);
-    }
-
-    #[test]
-    fn mcp_only_parser_detects_transport_restriction() {
-        let body = action_specs_body(ACTIONS).unwrap();
-        assert_eq!(extract_mcp_only_actions(body), vec!["elicit_name"]);
     }
 
     #[test]

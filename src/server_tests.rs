@@ -14,16 +14,16 @@ fn config(host: &str) -> Config {
 fn loopback_bind_is_loopback_dev_without_credentials() {
     let config = config("127.0.0.1");
     assert_eq!(
-        resolve_auth_policy_kind(&config, false).unwrap(),
+        resolve_auth_policy_kind(&config).unwrap(),
         AuthPolicyKind::LoopbackDev
     );
 }
 
 #[test]
-fn non_loopback_no_auth_without_gateway_is_rejected() {
+fn non_loopback_no_auth_is_rejected() {
     let mut config = config("0.0.0.0");
     config.mcp.no_auth = true;
-    let error = resolve_auth_policy_kind(&config, false).unwrap_err();
+    let error = resolve_auth_policy_kind(&config).unwrap_err();
     assert!(error.to_string().contains("SYNAPSE_MCP_NO_AUTH=true"));
 }
 
@@ -31,17 +31,19 @@ fn non_loopback_no_auth_without_gateway_is_rejected() {
 fn non_loopback_no_auth_with_gateway_is_trusted_gateway_unscoped() {
     let mut config = config("0.0.0.0");
     config.mcp.no_auth = true;
+    config.mcp.trusted_gateway = true;
     assert_eq!(
-        resolve_auth_policy_kind(&config, true).unwrap(),
+        resolve_auth_policy_kind(&config).unwrap(),
         AuthPolicyKind::TrustedGatewayUnscoped
     );
 }
 
 #[test]
-fn non_loopback_gateway_without_credentials_is_trusted_gateway_unscoped() {
-    let config = config("0.0.0.0");
+fn non_loopback_gateway_without_local_credentials_is_supported() {
+    let mut config = config("0.0.0.0");
+    config.mcp.trusted_gateway = true;
     assert_eq!(
-        resolve_auth_policy_kind(&config, true).unwrap(),
+        resolve_auth_policy_kind(&config).unwrap(),
         AuthPolicyKind::TrustedGatewayUnscoped
     );
 }
@@ -51,7 +53,7 @@ fn non_loopback_bearer_token_mounts_bearer_policy() {
     let mut config = config("0.0.0.0");
     config.mcp.api_token = Some("secret".into());
     assert_eq!(
-        resolve_auth_policy_kind(&config, false).unwrap(),
+        resolve_auth_policy_kind(&config).unwrap(),
         AuthPolicyKind::MountedBearer
     );
 }
@@ -75,15 +77,15 @@ fn non_loopback_oauth_mounts_oauth_policy() {
         ..AuthConfig::default()
     };
     assert_eq!(
-        resolve_auth_policy_kind(&config, false).unwrap(),
+        resolve_auth_policy_kind(&config).unwrap(),
         AuthPolicyKind::MountedOAuth
     );
 }
 
 #[test]
-fn non_loopback_without_auth_or_gateway_is_rejected() {
+fn non_loopback_without_auth_is_rejected() {
     let config = config("0.0.0.0");
-    let error = resolve_auth_policy_kind(&config, false).unwrap_err();
+    let error = resolve_auth_policy_kind(&config).unwrap_err();
     assert!(error.to_string().contains("without authentication"));
 }
 
@@ -91,7 +93,7 @@ fn non_loopback_without_auth_or_gateway_is_rejected() {
 fn invalid_public_url_is_rejected() {
     let mut config = config("0.0.0.0");
     config.mcp.auth.public_url = Some("not a url".into());
-    let error = resolve_auth_policy_kind(&config, true).unwrap_err();
+    let error = resolve_auth_policy_kind(&config).unwrap_err();
     assert!(
         error
             .to_string()
@@ -103,7 +105,7 @@ fn invalid_public_url_is_rejected() {
 fn wildcard_public_url_is_rejected() {
     let mut config = config("0.0.0.0");
     config.mcp.auth.public_url = Some("https://*.synapse2.com".into());
-    let error = resolve_auth_policy_kind(&config, true).unwrap_err();
+    let error = resolve_auth_policy_kind(&config).unwrap_err();
     assert!(
         error
             .to_string()

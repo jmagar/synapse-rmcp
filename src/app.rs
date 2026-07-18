@@ -75,17 +75,28 @@ impl SynapseService {
         self
     }
 
-    /// Inject a custom compose discovery engine (for testing or future DI).
-    pub fn with_compose_discovery(mut self, compose: Arc<ComposeDiscovery>) -> Self {
-        self.flux.compose = compose;
-        self
-    }
-
     /// Inject a custom `DockerClientCache` (e.g. one sharing an `SshPool` with
     /// scout, or a cache primed for tests).
     pub fn with_docker_clients(mut self, cache: Arc<DockerClientCache>) -> Self {
+        let pool = Arc::clone(cache.pool());
+        self.flux.ssh_pool = Arc::clone(&pool);
+        self.flux.compose = Arc::new(ComposeDiscovery::new(
+            Arc::clone(&pool) as Arc<dyn crate::ssh::SshExecutor>
+        ));
         self.flux.docker_clients = cache;
+        self.scout.ssh_pool = pool as Arc<dyn crate::ssh::SshExecutor>;
         self
+    }
+
+    /// Start background connection eviction for a long-running runtime.
+    pub fn start_runtime(&self) -> tokio::task::JoinHandle<()> {
+        self.flux.ssh_pool().spawn_eviction_task()
+    }
+
+    /// Clear Docker clients and await SSH connection teardown.
+    pub async fn shutdown(&self) {
+        self.flux.docker_clients.clear();
+        self.flux.ssh_pool().shutdown().await;
     }
 
     /// Access the flux domain service (Docker / container / host / compose).

@@ -29,7 +29,10 @@ use crate::server::{AppState, AuthPolicy};
 
 use super::{
     prompts, resources,
-    response::{render_mcp_tool_output, tool_result_from_text, validate_response_format_arg},
+    response::{
+        render_mcp_tool_output, tool_error_result, tool_result_from_text,
+        validate_response_format_arg,
+    },
     schemas::tool_definitions,
     tools::execute_tool,
 };
@@ -71,19 +74,28 @@ impl ServerHandler for SynapseRmcpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let tool_name = request.name.to_string();
-
-        let auth = require_auth_context(&self.state, &context)?;
-        if tool_name != "flux" && tool_name != "scout" {
-            return Err(ErrorData::invalid_params(
-                format!("unknown tool: {tool_name}"),
-                None,
-            ));
-        }
-
         let arguments = request
             .arguments
             .map(Value::Object)
             .unwrap_or_else(|| Value::Object(Map::new()));
+        let activity_action = activity_action_name(&tool_name, &arguments);
+
+        let auth = match require_auth_context(&self.state, &context) {
+            Ok(auth) => auth,
+            Err(error) => {
+                self.state
+                    .activity
+                    .record("mcp", &activity_action, false, Some("forbidden"));
+                return Err(error);
+            }
+        };
+        if tool_name != "flux" && tool_name != "scout" {
+            let error = ErrorData::invalid_params(format!("unknown tool: {tool_name}"), None);
+            self.state
+                .activity
+                .record("mcp", &activity_action, false, Some("invalid request"));
+            return Err(error);
+        }
 
         // Extract action before scope check so a missing action returns the
         // more useful "action is required" validation error, not DENY_SCOPE.
@@ -95,8 +107,24 @@ impl ServerHandler for SynapseRmcpServer {
         let parsed_action = if action_opt.is_some() {
             match parse_mcp_action(&tool_name, &arguments) {
                 Ok(action) => Some(action),
-                Err(error) if auth.is_some() => return Err(error),
-                Err(_) => return Err(ErrorData::invalid_request("invalid request", None)),
+                Err(error) if auth.is_some() => {
+                    self.state.activity.record(
+                        "mcp",
+                        &activity_action,
+                        false,
+                        Some("invalid request"),
+                    );
+                    return Err(error);
+                }
+                Err(_) => {
+                    self.state.activity.record(
+                        "mcp",
+                        &activity_action,
+                        false,
+                        Some("invalid request"),
+                    );
+                    return Err(ErrorData::invalid_request("invalid request", None));
+                }
             }
         } else {
             None
@@ -109,24 +137,35 @@ impl ServerHandler for SynapseRmcpServer {
             // Authenticated: safe to return specific errors
             if let Some(parsed_action) = parsed_action.as_ref()
                 && let Some(required_scope) = required_scope_for_parsed_action(parsed_action)
+                && let Err(error) = check_scope(auth_ctx, required_scope, parsed_action.name())
             {
-                check_scope(auth_ctx, required_scope, parsed_action.name())?;
+                self.state
+                    .activity
+                    .record("mcp", &activity_action, false, Some("forbidden"));
+                return Err(error);
             }
         } else {
-            // Unauthenticated (loopback or trusted gateway): still validate action
+            // Unauthenticated local/trusted-gateway mode: still validate action
             // but don't leak information before scope check
             if let Some(parsed_action) = parsed_action.as_ref()
                 && let Some(required_scope) = required_scope_for_parsed_action(parsed_action)
                 && required_scope != crate::actions::READ_SCOPE
                 && required_scope != crate::actions::WRITE_SCOPE
             {
+                self.state
+                    .activity
+                    .record("mcp", &activity_action, false, Some("invalid request"));
                 return Err(ErrorData::invalid_request("invalid request", None));
             }
         }
 
         let action: String = action_opt.unwrap_or_default();
-
-        validate_response_format_arg(&arguments)?;
+        if let Err(error) = validate_response_format_arg(&arguments) {
+            self.state
+                .activity
+                .record("mcp", &activity_action, false, Some("invalid request"));
+            return Err(error);
+        }
 
         // Clone the peer so we can pass it to the tool dispatcher.
         // The peer is needed for elicitation (asking the client for user input).
@@ -143,11 +182,34 @@ impl ServerHandler for SynapseRmcpServer {
                     elapsed_ms = started.elapsed().as_millis(),
                     "MCP tool execution completed"
                 );
-                let text = render_mcp_tool_output(&tool_name, &render_args, &result)
-                    .map_err(|e| ErrorData::internal_error(format!("render error: {e}"), None))?;
-                tool_result_from_text(text)
+                let text = match render_mcp_tool_output(&tool_name, &render_args, &result) {
+                    Ok(text) => text,
+                    Err(error) => {
+                        self.state.activity.record(
+                            "mcp",
+                            &activity_action,
+                            false,
+                            Some("execution failed"),
+                        );
+                        return Err(ErrorData::internal_error(
+                            format!("render error: {error}"),
+                            None,
+                        ));
+                    }
+                };
+                let result = tool_result_from_text(text);
+                self.state
+                    .activity
+                    .record("mcp", &activity_action, result.is_ok(), None);
+                result
             }
             Err(error) if crate::actions::is_confirmation_denied(&error) => {
+                self.state.activity.record(
+                    "mcp",
+                    &activity_action,
+                    false,
+                    Some("confirmation denied"),
+                );
                 tracing::warn!(
                     tool = %tool_name,
                     elapsed_ms = started.elapsed().as_millis(),
@@ -156,6 +218,12 @@ impl ServerHandler for SynapseRmcpServer {
                 Err(ErrorData::invalid_request(error.to_string(), None))
             }
             Err(error) if crate::actions::is_validation_error(&error) => {
+                self.state.activity.record(
+                    "mcp",
+                    &activity_action,
+                    false,
+                    Some(&error.to_string()),
+                );
                 tracing::warn!(
                     tool = %tool_name,
                     elapsed_ms = started.elapsed().as_millis(),
@@ -164,16 +232,19 @@ impl ServerHandler for SynapseRmcpServer {
                 Err(ErrorData::invalid_params(error.to_string(), None))
             }
             Err(error) => {
+                self.state.activity.record(
+                    "mcp",
+                    &activity_action,
+                    false,
+                    Some(&error.to_string()),
+                );
                 tracing::error!(
                     tool = %tool_name,
                     elapsed_ms = started.elapsed().as_millis(),
                     error = %error,
                     "MCP tool execution failed"
                 );
-                Err(ErrorData::internal_error(
-                    internal_tool_error_message(&action),
-                    None,
-                ))
+                Ok(tool_error_result(&activity_action, &error.to_string()))
             }
         }
     }
@@ -197,7 +268,12 @@ impl ServerHandler for SynapseRmcpServer {
         request: ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResult, ErrorData> {
-        require_auth_context(&self.state, &context)?;
+        let auth = require_auth_context(&self.state, &context)?;
+        if resources::requires_read_scope(&request.uri)
+            && let Some(auth) = auth
+        {
+            check_scope(auth, crate::actions::READ_SCOPE, &request.uri)?;
+        }
         let contents = resources::read_resource(&request.uri, &self.state)
             .await
             .map_err(|e| {
@@ -271,10 +347,28 @@ fn rmcp_tool_from_json(value: Value) -> Result<Tool, ErrorData> {
         .and_then(Value::as_object)
         .cloned()
         .ok_or_else(|| ErrorData::internal_error("tool definition missing inputSchema", None))?;
+    let operation_tool = match name {
+        "flux" => crate::actions::OperationTool::Flux,
+        "scout" => crate::actions::OperationTool::Scout,
+        _ => return Err(ErrorData::internal_error("unknown tool definition", None)),
+    };
+    let operations = crate::actions::operations_for_tool(operation_tool).collect::<Vec<_>>();
+    let read_only = operations
+        .iter()
+        .all(|spec| spec.required_scope != Some(crate::actions::WRITE_SCOPE) && !spec.destructive);
+    let destructive = operations.iter().any(|spec| spec.destructive);
+
     Ok(Tool::new_with_raw(
         Cow::Owned(name.to_string()),
         description,
         Arc::new(input_schema),
+    )
+    .with_annotations(
+        rmcp::model::ToolAnnotations::new()
+            .read_only(read_only)
+            .destructive(destructive)
+            .idempotent(false)
+            .open_world(true),
     ))
 }
 
@@ -301,8 +395,15 @@ fn parse_mcp_action(tool_name: &str, arguments: &Value) -> Result<SynapseAction,
     .map_err(|error| ErrorData::invalid_params(error.to_string(), None))
 }
 
-fn internal_tool_error_message(action: &str) -> String {
-    format!("tool execution failed: kind=execution_error action='{action}'")
+fn activity_action_name(tool_name: &str, arguments: &Value) -> String {
+    let action = arguments
+        .get("action")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    match arguments.get("subaction").and_then(Value::as_str) {
+        Some(subaction) => format!("{tool_name}.{action}.{subaction}"),
+        None => format!("{tool_name}.{action}"),
+    }
 }
 
 // ── auth helpers ──────────────────────────────────────────────────────────────

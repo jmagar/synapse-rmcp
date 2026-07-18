@@ -5,12 +5,18 @@ use serde_json::{Value, json};
 
 mod dispatch;
 mod flux;
+pub mod operations;
+pub mod rest;
 pub(crate) mod scout;
 
 // ── Re-exports (keep crate::actions::X resolving for all callers) ─────────────
 
 pub use dispatch::{execute_service_action, is_confirmation_denied, is_validation_error};
 pub use flux::{ComposeArgs, ContainerArgs, DockerArgs, HostArgs};
+pub use operations::{
+    OPERATION_SPECS, OperationSpec, OperationTool, OperationTransport, operation,
+    operation_for_shape, operations_for_tool,
+};
 pub use scout::{
     ScoutBeamArgs, ScoutDeltaArgs, ScoutEmitArgs, ScoutEmitTarget, ScoutExecArgs, ScoutFindArgs,
     ScoutLogsArgs, ScoutPsArgs, ScoutZfsArgs,
@@ -47,180 +53,53 @@ pub fn scopes_satisfy(token_scopes: &[String], required: &str) -> bool {
         .any(|s| s == required || (required == READ_SCOPE && s == WRITE_SCOPE))
 }
 
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActionTransport {
-    Any,
-    McpOnly,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ActionSpec {
-    pub name: &'static str,
-    pub required_scope: Option<&'static str>,
-    pub transport: ActionTransport,
-    /// True if this action mutates or destroys state irreversibly (container
-    /// rm/stop, docker prune, compose down, …). Destructive actions must pass
-    /// through the `elicitation_gate::Confirmer` before performing IO.
-    ///
-    /// This is the single source of truth — `read_only` is derived, not stored
-    /// (see [`is_read_only`]).
-    pub destructive: bool,
-}
-
-pub const ACTION_SPECS: &[ActionSpec] = &[
-    ActionSpec {
-        name: "help",
-        required_scope: None,
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    ActionSpec {
-        name: "docker",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    ActionSpec {
-        name: "container",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    ActionSpec {
-        name: "host",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    ActionSpec {
-        name: "compose",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        // The action spec marks the top-level action; destructive subactions
-        // (down/restart/recreate) are gated at the service layer via the
-        // Confirmer — not through the action spec flag (which is used for
-        // the schema-level readOnlyHint annotation only).
-        destructive: false,
-    },
-    ActionSpec {
-        name: "nodes",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    ActionSpec {
-        name: "peek",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    ActionSpec {
-        name: "find",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    ActionSpec {
-        name: "ps",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    ActionSpec {
-        name: "df",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    ActionSpec {
-        name: "delta",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    // exec/emit/beam are classified destructive (per synapse-mcp convention)
-    // even though the exec allowlist limits them to read-only commands.
-    // The Confirmer gate enforces this at the service layer (B5).
-    ActionSpec {
-        name: "exec",
-        required_scope: Some(WRITE_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: true,
-    },
-    ActionSpec {
-        name: "emit",
-        required_scope: Some(WRITE_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: true,
-    },
-    ActionSpec {
-        name: "beam",
-        required_scope: Some(WRITE_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: true,
-    },
-    // B15: ZFS read-only introspection (pools/datasets/snapshots).
-    ActionSpec {
-        name: "zfs",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-    // B15: Log retrieval read-only (syslog/journal/dmesg/auth).
-    ActionSpec {
-        name: "logs",
-        required_scope: Some(READ_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    },
-];
-
-/// Derive whether an action is read-only.
-///
-/// `read_only` is NOT stored on [`ActionSpec`]; it is derived from `destructive`
-/// plus the scope: an action is read-only when it is not destructive and does
-/// not require the write scope. This is the source for the MCP `readOnlyHint`
-/// tool annotation, while `destructiveHint` comes straight from
-/// [`ActionSpec::destructive`].
-pub fn is_read_only(spec: &ActionSpec) -> bool {
-    !spec.destructive && spec.required_scope != Some(WRITE_SCOPE)
-}
-
 pub fn action_names() -> Vec<&'static str> {
-    ACTION_SPECS.iter().map(|spec| spec.name).collect()
+    let mut names = Vec::new();
+    for spec in OPERATION_SPECS {
+        if !names.contains(&spec.action) {
+            names.push(spec.action);
+        }
+    }
+    names
 }
 
 pub fn is_known_action(action: &str) -> bool {
-    ACTION_SPECS.iter().any(|spec| spec.name == action)
+    OPERATION_SPECS.iter().any(|spec| spec.action == action)
 }
 
 pub fn rest_action_names() -> Vec<&'static str> {
-    ACTION_SPECS
-        .iter()
-        .filter(|spec| spec.transport == ActionTransport::Any)
-        .map(|spec| spec.name)
-        .collect()
+    rest::action_names()
 }
 
 pub fn is_rest_action(action: &str) -> bool {
-    action_spec(action)
-        .map(|spec| spec.transport == ActionTransport::Any)
-        .unwrap_or(false)
+    rest::operation(action).is_some()
+}
+
+pub fn mcp_operation_names() -> Vec<&'static str> {
+    OPERATION_SPECS.iter().map(|spec| spec.name).collect()
 }
 
 pub fn mcp_only_action_names() -> Vec<&'static str> {
-    ACTION_SPECS
+    OPERATION_SPECS
         .iter()
-        .filter(|spec| spec.transport == ActionTransport::McpOnly)
+        .filter(|spec| spec.transport == OperationTransport::McpOnly)
         .map(|spec| spec.name)
         .collect()
 }
 
 pub fn required_scope_for_action(action: &str) -> Option<&'static str> {
-    action_spec(action)
-        .map(|spec| spec.required_scope)
-        .unwrap_or(Some(DENY_SCOPE))
+    let mut matches = OPERATION_SPECS.iter().filter(|spec| spec.action == action);
+    let Some(first) = matches.next() else {
+        return Some(DENY_SCOPE);
+    };
+    first.required_scope?;
+    if first.required_scope == Some(READ_SCOPE)
+        || matches.any(|spec| spec.required_scope == Some(READ_SCOPE))
+    {
+        Some(READ_SCOPE)
+    } else {
+        Some(WRITE_SCOPE)
+    }
 }
 
 /// Derive scope from the parsed action, including flux subactions.
@@ -229,42 +108,20 @@ pub fn required_scope_for_action(action: &str) -> Option<&'static str> {
 /// MCP/CLI action name, so mounted auth must authorize the parsed shape rather
 /// than the raw `action` string.
 pub fn required_scope_for_parsed_action(action: &SynapseAction) -> Option<&'static str> {
-    match action {
-        SynapseAction::FluxDocker(args) => scope_for_flux_docker_subaction(&args.subaction),
-        SynapseAction::FluxContainer(args) => scope_for_flux_container_subaction(&args.subaction),
-        SynapseAction::FluxCompose(args) => scope_for_flux_compose_subaction(&args.subaction),
-        _ => required_scope_for_action(action.name()),
-    }
-}
-
-fn scope_for_flux_docker_subaction(subaction: &str) -> Option<&'static str> {
-    match subaction {
-        "info" | "df" | "images" | "networks" | "volumes" => Some(READ_SCOPE),
-        "pull" | "build" | "rmi" | "prune" => Some(WRITE_SCOPE),
-        _ => Some(DENY_SCOPE),
-    }
-}
-
-fn scope_for_flux_container_subaction(subaction: &str) -> Option<&'static str> {
-    match subaction {
-        "list" | "search" | "stats" | "inspect" | "top" | "logs" => Some(READ_SCOPE),
-        "start" | "stop" | "restart" | "pause" | "resume" | "pull" | "recreate" | "exec" => {
-            Some(WRITE_SCOPE)
-        }
-        _ => Some(DENY_SCOPE),
-    }
-}
-
-fn scope_for_flux_compose_subaction(subaction: &str) -> Option<&'static str> {
-    match subaction {
-        "list" | "refresh" | "status" | "logs" => Some(READ_SCOPE),
-        "up" | "down" | "restart" | "recreate" | "build" | "pull" => Some(WRITE_SCOPE),
-        _ => Some(DENY_SCOPE),
-    }
-}
-
-fn action_spec(action: &str) -> Option<&'static ActionSpec> {
-    ACTION_SPECS.iter().find(|spec| spec.name == action)
+    let (tool, subaction) = match action {
+        SynapseAction::FluxDocker(args) => (OperationTool::Flux, Some(args.subaction.as_str())),
+        SynapseAction::FluxContainer(args) => (OperationTool::Flux, Some(args.subaction.as_str())),
+        SynapseAction::FluxHost(args) => (OperationTool::Flux, Some(args.subaction.as_str())),
+        SynapseAction::FluxCompose(args) => (OperationTool::Flux, Some(args.subaction.as_str())),
+        SynapseAction::FluxHelp { .. } => (OperationTool::Flux, None),
+        SynapseAction::ScoutHelp { .. } => (OperationTool::Scout, None),
+        SynapseAction::ScoutZfs(args) => (OperationTool::Scout, Some(args.subaction.as_str())),
+        SynapseAction::ScoutLogs(args) => (OperationTool::Scout, Some(args.subaction.as_str())),
+        _ => (OperationTool::Scout, None),
+    };
+    operation_for_shape(tool, action.name(), subaction)
+        .map(|spec| spec.required_scope)
+        .unwrap_or(Some(DENY_SCOPE))
 }
 
 // ── SynapseAction enum ────────────────────────────────────────────────────────
@@ -337,9 +194,9 @@ impl SynapseAction {
 
 pub fn rest_help() -> Value {
     json!({
-        "actions": rest_action_names(),
+        "actions": rest::action_names(),
         "mcp_only_actions": mcp_only_action_names(),
-        "usage": "Use MCP tools `flux` and `scout`, or CLI commands `synapse2 flux ...` and `synapse2 scout ...`.",
+        "usage": "Use MCP tools `flux` and `scout`, or CLI commands `synapse flux ...` and `synapse scout ...`.",
         "examples": {
             "flux":  {"action": "docker", "subaction": "info"},
             "scout": {"action": "nodes"},

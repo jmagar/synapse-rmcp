@@ -89,6 +89,8 @@ __pycache__/
 node_modules/
 .next/
 *.tsbuildinfo
+/apps/web/out/*
+!/apps/web/out/.gitkeep
 
 # ── Repo-specific ────────────────────────────────────────────────────────────
 data/

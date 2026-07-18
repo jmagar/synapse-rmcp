@@ -1,8 +1,28 @@
 //! Unit tests for the sync TTL cache.
 
-use super::{Cache, MemoryCache};
+use super::{Cache, CacheClock, MemoryCache};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 use std::thread;
 use std::time::Duration;
+
+#[derive(Default)]
+struct TestClock(AtomicU64);
+
+impl TestClock {
+    fn advance(&self, duration: Duration) {
+        self.0
+            .fetch_add(duration.as_millis() as u64, Ordering::SeqCst);
+    }
+}
+
+impl CacheClock for TestClock {
+    fn now(&self) -> Duration {
+        Duration::from_millis(self.0.load(Ordering::SeqCst))
+    }
+}
 
 #[test]
 fn test_set_then_get_within_ttl() {
@@ -15,15 +35,14 @@ fn test_set_then_get_within_ttl() {
 
 #[test]
 fn test_get_returns_none_after_ttl_elapses() {
-    // TTL of 100ms.
-    let cache = MemoryCache::with_ttl(Duration::from_millis(100));
+    let clock = Arc::new(TestClock::default());
+    let cache = MemoryCache::with_clock(Duration::from_millis(100), 10, clock.clone());
     cache.set("key1".to_string(), "value1".to_string());
 
     // Within TTL: should exist.
     assert_eq!(cache.get(&"key1".to_string()), Some("value1".to_string()));
 
-    // Wait for expiration.
-    thread::sleep(Duration::from_millis(150));
+    clock.advance(Duration::from_millis(101));
 
     // After TTL: should be gone.
     assert_eq!(cache.get(&"key1".to_string()), None);
@@ -119,7 +138,7 @@ fn test_concurrent_set_from_100_tasks() {
 }
 
 #[test]
-fn test_max_entries_cap_evicts_oldest() {
+fn test_max_entries_cap_evicts_least_recently_used() {
     // Cap at 5 entries, default TTL.
     let cache = MemoryCache::with_ttl_and_max(Duration::from_secs(60), 5);
 
@@ -130,28 +149,50 @@ fn test_max_entries_cap_evicts_oldest() {
     cache.set("key4".to_string(), "value4".to_string());
     cache.set("key5".to_string(), "value5".to_string());
 
-    // All should exist.
+    // Touch key1 so key2 becomes least recently used.
     assert_eq!(cache.get(&"key1".to_string()), Some("value1".to_string()));
-    assert_eq!(cache.get(&"key5".to_string()), Some("value5".to_string()));
 
     // Insert a 6th entry, which should trigger eviction of the oldest.
     cache.set("key6".to_string(), "value6".to_string());
 
-    // key1 (oldest) should be evicted.
+    // key2 (least recently used) should be evicted.
     assert_eq!(
-        cache.get(&"key1".to_string()),
+        cache.get(&"key2".to_string()),
         None,
-        "oldest entry should be evicted"
+        "least recently used entry should be evicted"
     );
 
     // key6 should exist.
     assert_eq!(cache.get(&"key6".to_string()), Some("value6".to_string()));
 
     // The rest should still exist.
-    assert_eq!(cache.get(&"key2".to_string()), Some("value2".to_string()));
+    assert_eq!(cache.get(&"key1".to_string()), Some("value1".to_string()));
     assert_eq!(cache.get(&"key3".to_string()), Some("value3".to_string()));
     assert_eq!(cache.get(&"key4".to_string()), Some("value4".to_string()));
     assert_eq!(cache.get(&"key5".to_string()), Some("value5".to_string()));
+}
+
+#[test]
+fn zero_capacity_never_stores_an_entry() {
+    let cache = MemoryCache::with_ttl_and_max(Duration::from_secs(60), 0);
+    cache.set("key".to_owned(), "value".to_owned());
+    assert_eq!(cache.len(), 0);
+    assert_eq!(cache.get(&"key".to_owned()), None);
+}
+
+#[test]
+fn concurrent_inserts_never_exceed_capacity() {
+    let cache = Arc::new(MemoryCache::with_ttl_and_max(Duration::from_secs(60), 8));
+    let handles: Vec<_> = (0..64)
+        .map(|index| {
+            let cache = Arc::clone(&cache);
+            std::thread::spawn(move || cache.set(index, index))
+        })
+        .collect();
+    for handle in handles {
+        handle.join().expect("insert thread");
+    }
+    assert_eq!(cache.len(), 8);
 }
 
 #[test]

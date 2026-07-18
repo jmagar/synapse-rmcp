@@ -21,8 +21,12 @@ use super::REMOTE_DOCKER_SOCKET;
 /// Host names may contain hyphens, so the startup sweep parses the pid from the
 /// RIGHT (`rsplit_once('-')`). Keep this format in sync with [`sweep_stale_sockets`].
 pub fn forward_socket_path(host: &HostConfig) -> PathBuf {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    host.connection_key().hash(&mut hasher);
+    let identity = hasher.finish();
     PathBuf::from(format!(
-        "/tmp/synapse2-{}-{}.sock",
+        "/tmp/synapse2-{}-{identity:016x}-{}.sock",
         host.name,
         std::process::id()
     ))

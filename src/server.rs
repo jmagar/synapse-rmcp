@@ -27,8 +27,7 @@ pub enum AuthPolicy {
     /// No authentication. Only legal when bound to a loopback address.
     /// Scope checks are bypassed — the bind itself is the trust boundary.
     LoopbackDev,
-    /// No local authentication or scope checks. The deployment must enforce
-    /// both authentication and authorization before traffic reaches this server.
+    /// No local auth or scope checks. The upstream gateway is the trust boundary.
     TrustedGatewayUnscoped,
     /// Authentication middleware is mounted. Scope checks MUST run.
     /// - `Some(auth_state)`: OAuth mode (Google flow + JWKS issuance)
@@ -61,18 +60,7 @@ pub enum AuthPolicyKind {
     MountedOAuth,
 }
 
-/// Read SYNAPSE_NOAUTH from the environment directly.
-///
-/// Prefer `config.mcp.trusted_gateway` (loaded via `Config::load`) when a
-/// typed config is available. This function exists for call sites that need the
-/// value before config is fully loaded (e.g. early startup guards).
-pub fn trusted_gateway_from_env() -> bool {
-    std::env::var("SYNAPSE_NOAUTH")
-        .map(|v| matches!(v.to_lowercase().as_str(), "true" | "1" | "yes"))
-        .unwrap_or(false)
-}
-
-pub fn resolve_auth_policy_kind(config: &Config, trusted_gateway: bool) -> Result<AuthPolicyKind> {
+pub fn resolve_auth_policy_kind(config: &Config) -> Result<AuthPolicyKind> {
     validate_public_url(config)?;
 
     if config.mcp.is_loopback() {
@@ -88,14 +76,14 @@ pub fn resolve_auth_policy_kind(config: &Config, trusted_gateway: bool) -> Resul
     let has_oauth = config.mcp.auth.mode == AuthMode::OAuth;
 
     if config.mcp.no_auth {
-        if trusted_gateway {
+        if config.mcp.trusted_gateway {
             return Ok(AuthPolicyKind::TrustedGatewayUnscoped);
         }
         anyhow::bail!(
             "Refusing to bind MCP server to {} with SYNAPSE_MCP_NO_AUTH=true.\n\
              \n\
              SYNAPSE_MCP_NO_AUTH is only allowed on loopback binds. For a trusted \
-             upstream proxy deployment, also set SYNAPSE_NOAUTH=true.",
+             upstream gateway deployment, also set SYNAPSE_NOAUTH=true.",
             config.mcp.host
         );
     }
@@ -104,7 +92,7 @@ pub fn resolve_auth_policy_kind(config: &Config, trusted_gateway: bool) -> Resul
         Ok(AuthPolicyKind::MountedOAuth)
     } else if has_token {
         Ok(AuthPolicyKind::MountedBearer)
-    } else if trusted_gateway {
+    } else if config.mcp.trusted_gateway {
         Ok(AuthPolicyKind::TrustedGatewayUnscoped)
     } else {
         anyhow::bail!(
@@ -115,7 +103,7 @@ pub fn resolve_auth_policy_kind(config: &Config, trusted_gateway: bool) -> Resul
              2. Set a bearer token:  SYNAPSE_MCP_TOKEN=$(openssl rand -hex 32)\n\
              3. Enable OAuth:        SYNAPSE_MCP_AUTH_MODE=oauth (+ OAuth credentials)\n\
              4. Local no-auth dev:   SYNAPSE_MCP_HOST=127.0.0.1 SYNAPSE_MCP_NO_AUTH=true\n\
-             5. Upstream gateway:    SYNAPSE_NOAUTH=true  (if a proxy handles auth)\n\
+             5. Upstream gateway:    SYNAPSE_NOAUTH=true  (only if it enforces auth/authz)\n\
              \n\
              TEMPLATE: Replace SYNAPSE_ prefix with your service's prefix throughout.",
             config.mcp.host
@@ -144,6 +132,7 @@ pub struct AppState {
     pub config: McpConfig,
     pub auth_policy: AuthPolicy,
     pub service: SynapseService,
+    pub activity: crate::activity::ActivityLog,
 }
 
 /// Build an [`AuthLayer`] from an [`AuthPolicy`], or `None` when the trust

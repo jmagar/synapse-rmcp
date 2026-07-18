@@ -1,7 +1,7 @@
 //! Unit tests for the compose discovery layer.
 //!
 //! All discovery runs through a programmable [`SshExecutor`] mock that returns
-//! canned `find` / `docker compose ls` / `cat` output and counts invocations,
+//! canned `find` / `docker compose ls` / batched-name output and counts invocations,
 //! so no live SSH server is needed.
 
 use super::*;
@@ -19,8 +19,8 @@ struct MockExec {
     find_stdout: String,
     /// stdout for `docker compose ls --format json`.
     ls_stdout: String,
-    /// map from file path (last cat arg) → file contents.
-    cat: std::collections::HashMap<String, String>,
+    /// Explicit compose names returned by the remote batch parser.
+    names: std::collections::HashMap<String, String>,
     calls: AtomicUsize,
     find_calls: AtomicUsize,
     ls_calls: AtomicUsize,
@@ -31,7 +31,7 @@ impl MockExec {
         Self {
             find_stdout: String::new(),
             ls_stdout: String::new(),
-            cat: std::collections::HashMap::new(),
+            names: std::collections::HashMap::new(),
             calls: AtomicUsize::new(0),
             find_calls: AtomicUsize::new(0),
             ls_calls: AtomicUsize::new(0),
@@ -48,8 +48,8 @@ impl MockExec {
         self
     }
 
-    fn with_cat(mut self, path: impl Into<String>, contents: impl Into<String>) -> Self {
-        self.cat.insert(path.into(), contents.into());
+    fn with_name(mut self, path: impl Into<String>, name: impl Into<String>) -> Self {
+        self.names.insert(path.into(), name.into());
         self
     }
 
@@ -76,12 +76,12 @@ impl SshExecutor for MockExec {
                 self.ls_calls.fetch_add(1, Ordering::SeqCst);
                 (self.ls_stdout.clone(), Some(0))
             }
-            "cat" => {
-                let path = args.last().copied().unwrap_or("");
-                match self.cat.get(path) {
-                    Some(contents) => (contents.clone(), Some(0)),
-                    None => (String::new(), Some(1)),
-                }
+            "python3" => {
+                let names: std::collections::HashMap<&str, &str> = args[2..]
+                    .iter()
+                    .filter_map(|path| self.names.get(*path).map(|name| (*path, name.as_str())))
+                    .collect();
+                (serde_json::to_string(&names).unwrap(), Some(0))
             }
             other => panic!("unexpected program in mock: {other}"),
         };
@@ -128,25 +128,6 @@ fn project_name_from_path_uses_parent_dir() {
         "myapp"
     );
     assert_eq!(project_name_from_path("compose.yaml"), "");
-}
-
-#[test]
-fn parse_compose_name_only_matches_top_level() {
-    // Top-level name wins.
-    assert_eq!(
-        parse_compose_name("name: explicit\nservices:\n  web:\n    container_name: nested"),
-        Some("explicit".to_string())
-    );
-    // Nested container_name must NOT match.
-    assert_eq!(
-        parse_compose_name("services:\n  web:\n    container_name: nope"),
-        None
-    );
-    // Quoted value stripped; trailing comment dropped.
-    assert_eq!(
-        parse_compose_name("name: \"quoted\"  # comment"),
-        Some("quoted".to_string())
-    );
 }
 
 #[test]
@@ -204,14 +185,7 @@ async fn discovery_parses_compose_files_in_nested_dirs() {
         .with_ls("") // no running projects
         .with_find("/compose/alpha/docker-compose.yml\n/mnt/cache/code/beta/compose.yaml\n")
         // alpha has an explicit top-level name; beta falls back to its dir name.
-        .with_cat(
-            "/compose/alpha/docker-compose.yml",
-            "name: alpha-explicit\n",
-        )
-        .with_cat(
-            "/mnt/cache/code/beta/compose.yaml",
-            "services:\n  web: {}\n",
-        );
+        .with_name("/compose/alpha/docker-compose.yml", "alpha-explicit");
 
     let disco = ComposeDiscovery::new(Arc::new(mock));
     let host = host_with_paths(&["/compose", "/mnt/cache/code"]);
@@ -238,7 +212,7 @@ async fn cache_hit_avoids_rescanning() {
         MockExec::new()
             .with_ls("")
             .with_find("/compose/alpha/docker-compose.yml\n")
-            .with_cat("/compose/alpha/docker-compose.yml", "name: alpha\n"),
+            .with_name("/compose/alpha/docker-compose.yml", "alpha"),
     );
     let disco = ComposeDiscovery::new(mock.clone());
     let host = host_with_paths(&["/compose"]);
@@ -256,6 +230,26 @@ async fn cache_hit_avoids_rescanning() {
         after_first,
         "cache hit must not re-run discovery"
     );
+    assert_eq!(
+        disco.in_flight_len(),
+        0,
+        "idle single-flight keys are removed"
+    );
+}
+
+#[tokio::test]
+async fn compose_names_are_resolved_in_one_batch_call() {
+    let mock = Arc::new(
+        MockExec::new()
+            .with_ls("")
+            .with_find("/compose/a/compose.yml\n/compose/b/compose.yml\n")
+            .with_name("/compose/a/compose.yml", "explicit-a"),
+    );
+    let disco = ComposeDiscovery::new(mock.clone());
+    let projects = disco.list(&host_with_paths(&["/compose"])).await.unwrap();
+    assert_eq!(projects.len(), 2);
+    assert_eq!(mock.total_calls(), 3, "docker ls + find + one batch parser");
+    assert_eq!(disco.in_flight_len(), 0);
 }
 
 // ── refresh: invalidates and forces a re-walk ───────────────────────────────
@@ -266,7 +260,7 @@ async fn refresh_forces_rescan() {
         MockExec::new()
             .with_ls("")
             .with_find("/compose/alpha/docker-compose.yml\n")
-            .with_cat("/compose/alpha/docker-compose.yml", "name: alpha\n"),
+            .with_name("/compose/alpha/docker-compose.yml", "alpha"),
     );
     let disco = ComposeDiscovery::new(mock.clone());
     let host = host_with_paths(&["/compose"]);
@@ -289,6 +283,90 @@ async fn refresh_forces_rescan() {
     assert!(mock.total_calls() > before_all);
 }
 
+#[tokio::test]
+async fn retargeted_alias_uses_a_distinct_discovery_cache_entry() {
+    let mock = Arc::new(
+        MockExec::new()
+            .with_ls("")
+            .with_find("/compose/alpha/docker-compose.yml\n")
+            .with_name("/compose/alpha/docker-compose.yml", "alpha"),
+    );
+    let disco = ComposeDiscovery::new(mock.clone());
+    let first = host_with_paths(&["/compose"]);
+    disco.list(&first).await.unwrap();
+    let after_first = mock.total_calls();
+
+    let mut retargeted = first.clone();
+    retargeted.host = "replacement.example.test".into();
+    disco.list(&retargeted).await.unwrap();
+
+    assert!(
+        mock.total_calls() > after_first,
+        "a reused alias with a new topology must be rediscovered"
+    );
+}
+
+struct BlockingDiscoveryExec {
+    calls: AtomicUsize,
+    started: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+#[async_trait]
+impl SshExecutor for BlockingDiscoveryExec {
+    async fn exec(
+        &self,
+        _host: &HostConfig,
+        program: &str,
+        args: &[&str],
+    ) -> anyhow::Result<CommandOutput> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let stdout = match program {
+            "docker" if self.calls.load(Ordering::SeqCst) == 1 => {
+                self.started.notify_one();
+                self.release.notified().await;
+                String::new()
+            }
+            "docker" => String::new(),
+            "find" => "/compose/alpha/compose.yml\n".into(),
+            "python3" => serde_json::json!({args[2]: "alpha"}).to_string(),
+            other => panic!("unexpected program in mock: {other}"),
+        };
+        Ok(CommandOutput {
+            stdout,
+            stderr: String::new(),
+            exit_code: Some(0),
+        })
+    }
+}
+
+#[tokio::test]
+async fn refresh_during_discovery_prevents_stale_cache_publish() {
+    let mock = Arc::new(BlockingDiscoveryExec {
+        calls: AtomicUsize::new(0),
+        started: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let disco = Arc::new(ComposeDiscovery::new(mock.clone()));
+    let host = host_with_paths(&["/compose"]);
+    let task = {
+        let disco = Arc::clone(&disco);
+        let host = host.clone();
+        tokio::spawn(async move { disco.list(&host).await.unwrap() })
+    };
+    mock.started.notified().await;
+    disco.refresh(Some(&host.name));
+    mock.release.notify_one();
+    task.await.unwrap();
+    let after_first = mock.calls.load(Ordering::SeqCst);
+
+    disco.list(&host).await.unwrap();
+    assert!(
+        mock.calls.load(Ordering::SeqCst) > after_first,
+        "refresh must prevent an in-flight stale discovery from publishing"
+    );
+}
+
 // ── merge: docker-ls + filesystem results combine, deduped by name ──────────
 
 #[tokio::test]
@@ -302,9 +380,7 @@ async fn docker_ls_and_filesystem_results_merge() {
     ]"#;
     let mock = MockExec::new()
         .with_ls(ls_json)
-        .with_find("/compose/shared/docker-compose.yml\n/compose/fsonly/compose.yaml\n")
-        .with_cat("/compose/shared/docker-compose.yml", "services: {}\n")
-        .with_cat("/compose/fsonly/compose.yaml", "services: {}\n");
+        .with_find("/compose/shared/docker-compose.yml\n/compose/fsonly/compose.yaml\n");
 
     let mock = Arc::new(mock);
     let disco = ComposeDiscovery::new(mock.clone());

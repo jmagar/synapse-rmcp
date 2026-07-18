@@ -2,128 +2,112 @@
 
 ## Review Target
 
-Full repository review of `/home/jmagar/workspace/synapse2` at `main` commit `f2dcd16` (`docs: save session log`), covering Rust server code, MCP/REST/CLI surfaces, web UI, docs, tests, workflows, scripts, and plugin packaging.
+The entire tracked `synapse2` repository at baseline commit `dc75a01763334549e238061e49fdc2056fa5cec8`: Rust service/CLI/MCP/REST, SSH and Docker execution, browser UI, tests, documentation, installers, packaging, CI/CD, and deployment configuration.
 
 ## Executive Summary
 
-Synapse2's Rust core is in comparatively good shape: service boundaries are clean, destructive operations are gated, parsed scope checks are present, and `cargo test --locked` passes. The major risk is adaptation drift: the web UI, release/Docker workflows, installer, and several active docs still describe or operate on the old `example`/`rmcp-template` contract, and the web test suite is currently red because of that drift.
+The repository has broad automated coverage and a generally well-separated domain architecture, but several trust and resource boundaries are documented or tested more strongly than they are enforced. The most urgent issues are unauthenticated trusted-gateway exposure, command-argument and remote-symlink escapes, unbounded subprocess/filesystem/request admission, an unusable production browser-auth contract, and operational automation that can publish or act on the wrong artifact/workload.
+
+The eight phase reports produced 76 actionable findings. After folding duplicate architecture/performance findings and treating missing tests/docs as required acceptance criteria for their underlying defects, they resolve into 60 remediation items: 0 P0, 15 P1, 29 P2, and 16 P3. Every item is in scope for immediate remediation per the user directive.
 
 ## Findings by Priority
 
-### Critical Issues
+### Critical Issues (P0 — Must Fix Immediately)
 
-- None found in the reviewed phases.
+None.
 
-### High Priority
+### High Priority (P1 — Fix Before Next Release)
 
-- High — Phase 1/3/4 — `apps/web/lib/template.ts:1`, `apps/web/lib/api.ts:68`, `apps/web/app/page.tsx:49`
-  The embedded web UI still targets template actions and `/v1/example`. The current web tests fail because the web action metadata disagrees with generated OpenAPI.
-  Fix by replacing the web action model and dashboard/tool-runner calls with Synapse2 `flux`/`scout` REST metadata.
+1. Enforce requested `scout exec` timeouts across CLI/MCP/domain execution and test actual cancellation.
+2. Key/invalidate SSH and Docker connections by full topology identity so alias retargeting cannot reach stale hosts.
+3. Implement a supported authenticated browser UI contract, states, and E2E coverage; document static bearer tokens as read-only.
+4. Replace unscoped trusted-gateway bypass with enforceable peer/mTLS/auth constraints, safe startup policy, tests, and threat-boundary docs.
+5. Replace name-only Scout command validation with typed per-command argument policy, blocking `rg --pre` and equivalent execution/config escapes.
+6. Canonicalize and enforce remote read roots immediately before access, including intermediate symlinks and TOCTOU tests.
+7. Pin and isolate the privileged OpenWiki supply chain; remove mutable npm/action execution from privileged network/PR context.
+8. Bound stdout/stderr while draining local and SSH producers rather than truncating only after full buffering.
+9. Bound file sizes and replace Scout delta's quadratic full-file diff with a bounded off-runtime algorithm.
+10. Replace the HTTP semaphore's unbounded waiter queue with bounded admission/load shedding and overload tests.
+11. Bound `find`/tree traversal at the producer and terminate once result/byte limits are reached.
+12. Correct repair automation so it cannot stop/install `example-mcp`; validate and test Synapse targets.
+13. Scan the exact container digest before publication, preserve SARIF on failure, and publish only verified artifacts.
+14. Make production Compose consume `ghcr.io/jmagar/synapse2` (preferably by digest) and contract-test the resolved image.
+15. Add all missing high-value regression suites for the above trust/resource/installer/browser boundaries; tests must fail on the baseline defects and pass after remediation.
 
-- High — Phase 1/2/4 — `.github/workflows/release.yml:29`
-  Release automation packages `example` instead of the real `synapse` binary.
-  Fix by setting `BINARY_NAME=synapse` and adding a workflow invariant check against `Cargo.toml`.
+### Medium Priority (P2 — Address in This Remediation)
 
-- High — Phase 1/2/4 — `.github/workflows/docker-publish.yml:28`
-  Docker publishing and Trivy scanning target `ghcr.io/jmagar/example-mcp`.
-  Fix by using the Synapse2 image identity and rejecting stale template refs in workflow checks.
+1. Preserve Scout CLI argv for `exec`/`emit` and reject unknown/duplicate flags.
+2. Reject invalid numeric CLI values instead of silently substituting defaults.
+3. Propagate primary/fallback log command failures with bounded context.
+4. Reconcile web destructive-action requirements (`force`, `prune_target`) with backend validation.
+5. Propagate unexpected container-stop failures before recreate mutation.
+6. Establish one canonical dotted REST/action contract for help, parsing, OpenAPI, web metadata, scope, and destructiveness.
+7. Wire SSH eviction, Docker cache clearing, forwarded-socket cleanup, and graceful shutdown into HTTP/stdio runtime ownership.
+8. Apply canonical read-root/sensitive-path policy to filesystem operands of generic Scout commands.
+9. Make npm/shell installers require HTTPS, verified checksums/attestations, bounded downloads, safe tar entries, and fail-closed cleanup; add security tests.
+10. Resolve or time-bound the Marvin RSA advisory exception and migrate signing when a constant-time path is available.
+11. Disable cwd dotenv loading in production or require an explicit secure file/flag with ownership checks.
+12. Fetch all-container stats with bounded concurrency and preserve per-container errors.
+13. Add Compose-discovery single flight and bounded/batched remote reads.
+14. Resolve hostless container ownership with bounded first-success concurrency.
+15. Correct Docker bind/publish documentation and document `SYNAPSE_MCP_BIND_HOST` separately from container bind.
+16. Mechanically synchronize CONFIG/ENV documentation, including concurrency and OAuth TTL/rate/static-token behavior.
+17. Remove invented container auto-bind behavior from deployment docs.
+18. Expand web/backend contract tests beyond IDs and run `pnpm test` in CI.
+19. Load one canonical Aurora token stylesheet and guard all referenced CSS variables.
+20. Pin every release/npm third-party GitHub Action to full SHAs and enforce the standard.
+21. Use one explicit production Rust toolchain across CI, releases, and container builds; keep MSRV separate.
+22. Move local filesystem work off Tokio executor threads.
+23. Replace template identifiers in runtime-freshness verification and test systemd/container detection.
+24. Build, resolve, and smoke the deployable container on pull requests.
+25. Restore audited entrypoint permission repair or parameterize/preflight runtime UID/GID; test non-1000 hosts.
+26. Repair the release-readiness gate to validate semantic artifacts and run it in CI.
+27. Fix auth-smoke variables/URL/port/temp-file handling and test the documented command verbatim.
+28. Separate `/health` liveness from bounded `/ready` dependency/config readiness; update monitoring and docs.
+29. Implement persistent size-aware log rotation/retention and diagnostics.
 
-- High — Phase 3 — `docs/AUTH.md:17`
-  Auth docs still use `example:*`, `EXAMPLE_*`, and `/v1/example`.
-  Fix by rewriting the auth guide around `synapse:*`, `SYNAPSE_*`, `/v1/synapse2`, and the current bearer/OAuth behavior.
+### Low Priority (P3 — Address in This Remediation)
 
-- High — Phase 3 — `install.sh:27`
-  Installer metadata still points to `your-org/example-mcp`, `example`, and `EXAMPLE_MCP_*`.
-  Fix by adapting it to Synapse2 or removing it until supported.
-
-### Medium Priority
-
-- Medium — Phase 1 — `src/scout.rs:1`
-  Stale MVP `peek` and `exec` helpers remain beside the active `ScoutService` implementation.
-  Fix by reducing the module to host helpers or moving the helpers and deleting stale functions.
-
-- Medium — Phase 1/4 — `src/actions/flux.rs:1`, `src/cli/flux.rs:1`, `src/cli/help.rs:1`, `src/config.rs:1`, `src/mcp/help.rs:1`
-  Several modules exceed the advisory size budget.
-  Fix opportunistically with cohesive submodules.
-
-- Medium — Phase 1/3 — `tests/tool_dispatch.rs:11`
-  Direct MCP dispatch coverage does not cover many action families.
-  Fix with table-driven action-family dispatch tests.
-
-- Medium — Phase 2 — `src/server.rs:165`
-  Static bearer tokens are read-scoped only with no visible write-scoped bearer path.
-  Fix by documenting this explicitly or adding separate read/write bearer token configuration.
-
-- Medium — Phase 3 — `docs/ARCHITECTURE.md:18`, `docs/DOCKER.md:41`, `docs/SYSTEMD.md:16`, `docs/ENV.md:18`
-  Active docs retain template identifiers and examples.
-  Fix by refreshing docs and adding a forbidden-template-identifier docs check.
-
-- Medium — Phase 4 — `src/mcp/rmcp_server.rs:121`
-  Response-format validation sits in the protocol server file.
-  Fix by keeping it minimal or centralizing validation with shared action parsing.
-
-- Medium — Phase 4 — `apps/web/package.json:21`
-  pnpm ignores the current `"pnpm"` override field.
-  Fix by moving overrides to supported pnpm configuration.
-
-### Low Priority
-
-- Low — Phase 2/4 — `src/scout_service/fs.rs:52`
-  `peek` reads whole allowed files before response truncation.
-  Fix with bounded/streaming file reads and remote byte caps.
-
-- Low — Phase 2 — `src/scout_service/exec.rs:139`
-  `emit` accepts target paths but ignores them during fanout execution.
-  Fix by rejecting path for unsupported modes or applying/documenting cwd behavior consistently.
+1. Make `MemoryCache` deliver documented LRU/strict-capacity behavior, including zero and concurrent inserts, with a controllable clock.
+2. Prevent facade dependency mutators from violating the shared SSH-pool invariant.
+3. Split `src/actions/flux.rs` below the repository's 400-line advisory using sibling modules.
+4. Update Vite to a release containing fixes for the two Windows dev-server advisories.
+5. Remove yanked `spin 0.9.8` while retaining the deny gate.
+6. Pass release metadata through environment variables and validate tags before privileged shell use.
+7. Lazily materialize bounded fanout work instead of one future/config clone per host.
+8. Cache revisioned topology snapshots and reload blocking sources only when changed.
+9. Add enforceable coverage/live JSON-RPC/SSH integration gates rather than optional/silent-skipping paths.
+10. Correct runtime image docs to describe Bollard rather than a nonexistent Docker CLI.
+11. Remove the unnecessary client boundary from the static API page.
+12. Remove seven unused Radix dependencies and add dependency-hygiene automation.
+13. Remove or modernize the unused blocking legacy Docker CLI module.
+14. Make web health polling abortable and completion-driven.
+15. Repair standalone CLI generation to use Synapse identity and a valid MCP handshake, with smoke coverage.
+16. Fold cache/lifecycle/recreate/CLI/concurrency test-quality gaps into deterministic regression suites using controllable clocks and scriptable fakes.
 
 ## Findings by Category
 
-### Architecture and Code Quality
+- **Code Quality:** 8 findings (0 Critical, 1 High, 6 Medium, 1 Low)
+- **Architecture:** 7 findings (0 Critical, 2 High, 2 Medium, 3 Low)
+- **Security:** 11 findings (0 Critical, 4 High, 4 Medium, 3 Low)
+- **Performance:** 10 findings (0 Critical, 4 High, 4 Medium, 2 Low)
+- **Testing:** 13 findings (0 Critical, 6 High, 5 Medium, 2 Low)
+- **Documentation:** 8 findings (0 Critical, 3 High, 4 Medium, 1 Low)
+- **Best Practices:** 8 findings (0 Critical, 0 High, 4 Medium, 4 Low)
+- **CI/CD & DevOps:** 11 findings (0 Critical, 3 High, 7 Medium, 1 Low)
 
-The service-layer split into `FluxService` and `ScoutService` is strong, and MCP/CLI shims mostly remain thin. Current architecture debt is concentrated in stale template/web surfaces, leftover MVP Scout helpers, and several coordination-heavy modules that are over the soft budget.
+## Recommended Action Plan
 
-### Security
+1. **Security/runtime lane (large):** gateway/auth, command operands, remote containment, bounded output/find/delta/admission, connection identity/lifecycle, readiness, and regression tests.
+2. **CLI/contracts/web/docs lane (large):** CLI correctness, canonical REST/web metadata, browser auth/Aurora, operator documentation, module split, and web tests.
+3. **CI/install/operations/performance lane (large):** installer provenance, workflow pinning/scanning, release/runtime scripts, Compose/image/UID behavior, log rotation, bounded remote concurrency, and CI gates.
+4. Integrate lanes, run all Rust/web/npm/docs/policy/container quality gates, then open a PR.
+5. Run `lavra-review` on the PR, file and fix every P0-P3 finding, rerun gates, and push final amendments.
 
-Core auth and destructive-operation controls are meaningfully stronger than the surrounding docs suggest. The main security risk is operational: stale Docker/release identities and incorrect auth docs can lead users to trust or configure the wrong artifacts and scopes.
+## Review Metadata
 
-### Performance
-
-No broad runtime performance defect was found. The main concrete performance issue is `peek` reading full allowed files before truncation.
-
-### Testing
-
-Rust coverage is broad and currently green. Web tests are red and accurately catch stale metadata. Direct MCP dispatch coverage should be broadened so action-family drift is caught earlier.
-
-### Documentation
-
-`docs/API.md` and `docs/MCP_SCHEMA.md` are current enough to be useful. Several other active docs still read like template docs and should be refreshed or clearly marked as inherited template reference.
-
-### Standards and Operations
-
-Hard repo gates pass, but release and Docker publish workflows do not meet the operational standard expected for a deployable repo because they target stale artifact identities.
-
-## Recommended Fix Order
-
-1. Fix the web contract drift and restore `cd apps/web && pnpm test`.
-2. Fix release and Docker workflow artifact/image identities, then add static invariant tests for both.
-3. Refresh auth/deployment docs and either adapt or remove `install.sh`.
-4. Add direct MCP dispatch tests for missing action families.
-5. Clarify static bearer write-scope policy.
-6. Remove stale `src/scout.rs` MVP helpers.
-7. Address bounded `peek` reads and `emit` path semantics.
-8. Opportunistically split modules over the advisory size budget.
-
-## Residual Risks
-
-- I did not run live destructive Docker/Compose/SSH actions; review relied on code, unit/integration tests, and safe checks.
-- I did not run a full release workflow or Docker publish dry-run; workflow findings are static but direct.
-- Stale template text is widespread in historical session logs and generic template references; remediation should avoid rewriting archived history and focus on active operator docs.
-
-## Commands Run
-
-- `cargo test --locked` — passed.
-- `cd apps/web && pnpm test` — failed in `apps/web/lib/template.test.ts`.
-- `python3 scripts/check-openapi.py --check` — passed.
-- `python3 scripts/check-schema-docs.py --check` — passed.
-- `cargo xtask patterns` — passed hard checks with warnings.
-- `scripts/check-rust-module-size.sh` — passed hard gate with advisory warnings.
+- Review date: 2026-07-18
+- Baseline: `dc75a01763334549e238061e49fdc2056fa5cec8`
+- Phases completed: Code Quality & Architecture; Security & Performance; Testing & Documentation; Best Practices & Standards; Consolidated Report
+- Flags: entire repository; Rust/Axum/rmcp plus Next.js/React; no strict/security-only/performance-only narrowing
+- Baseline verification: `cargo test --locked` passed (667 unit tests plus all integration/doc suites); generated schema/OpenAPI checks passed; `cargo deny check` failed only on yanked `spin 0.9.8`.

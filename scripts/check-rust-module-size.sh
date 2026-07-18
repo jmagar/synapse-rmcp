@@ -159,6 +159,9 @@ soft_hits=()
 hard_hits=()
 while IFS= read -r file; do
   is_prod_rust_file "$file" || continue
+  # A tracked file may be deleted in the current worktree before the deletion
+  # is staged. It is no longer a production module and must not be counted.
+  [[ -f "$file" ]] || continue
   count="$(count_file "$file")"
   if (( count > hard )); then
     hard_hits+=("$(printf '%s\t%s' "$count" "$file")")

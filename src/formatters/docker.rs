@@ -5,7 +5,7 @@
 //! Shapes correspond to `docker info --format '{{json .}}'`,
 //! `docker images --format '{{json .}}'`, `docker network ls --format '{{json .}}'`,
 //! and `docker volume ls --format '{{json .}}'` passed through
-//! [`crate::docker::docker_json`].
+//! Docker-domain values returned by the Bollard-backed service layer.
 //!
 //! ## STYLE.md compliance
 //! - §3.1  Plain text titles

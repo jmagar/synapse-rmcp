@@ -6,6 +6,26 @@ fn web_assets_available_is_callable() {
 }
 
 #[test]
+fn security_headers_are_restrictive() {
+    let mut response = axum::response::Response::new(axum::body::Body::empty());
+    apply_security_headers(&mut response);
+    assert_eq!(
+        response.headers()[axum::http::header::X_CONTENT_TYPE_OPTIONS],
+        "nosniff"
+    );
+    assert_eq!(
+        response.headers()[axum::http::header::REFERRER_POLICY],
+        "no-referrer"
+    );
+    let csp = response.headers()["content-security-policy"]
+        .to_str()
+        .unwrap();
+    assert!(csp.contains("object-src 'none'"));
+    assert!(csp.contains("frame-ancestors 'none'"));
+    assert!(csp.contains("script-src-attr 'none'"));
+}
+
+#[test]
 fn normalize_asset_path_removes_leading_and_trailing_slashes() {
     assert_eq!(normalize_asset_path("/tools/"), "tools");
     assert_eq!(normalize_asset_path("/api"), "api");

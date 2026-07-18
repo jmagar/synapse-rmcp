@@ -40,7 +40,7 @@ python3 scripts/check-schema-docs.py --check
 
 ## Drift Rules
 
-- `ACTION_SPECS` in `src/actions.rs` is the canonical action and scope list.
+- `OPERATION_SPECS` in `src/actions/operations.rs` is the canonical operation, scope, transport, destructiveness, and required-parameter list.
 - `src/mcp/schemas.rs` must expose exactly the `flux` and `scout` tool schemas.
 - Both MCP tool schemas must reject unknown top-level parameters.
 - `help` is intentionally public and must have no required scope.

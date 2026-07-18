@@ -94,7 +94,7 @@ preflight() {
 
 One-line install:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jmagar/synapse2/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jmagar/synapse-rmcp/main/install.sh | bash
 ```
 
 After install: `synapse doctor` to validate the environment.

@@ -1,5 +1,3 @@
-"use client";
-
 import { ActionCard } from "@/components/api/action-card";
 import { EndpointRow } from "@/components/api/endpoint-row";
 import { ACTIONS, WEB_APP_CONFIG } from "@/lib/template";

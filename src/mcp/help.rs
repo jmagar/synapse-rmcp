@@ -3,8 +3,8 @@
 //! **Source of truth**: a static `HashMap<&'static str, &'static str>` mapping
 //! `"<domain>:<action>"` topic keys to markdown documentation strings.
 //!
-//! **Synchronization rule**: this map is NOT auto-generated from `ACTION_SPECS`.
-//! When adding an action, you MUST add a help entry here. See the CLAUDE.md
+//! **Synchronization rule**: prose remains manual, while operation policy comes
+//! from `OPERATION_SPECS`. When adding an action, you MUST add a help entry here. See the CLAUDE.md
 //! "How to add an action" checklist, step 8.
 //!
 //! Public API:

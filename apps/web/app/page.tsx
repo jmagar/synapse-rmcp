@@ -4,71 +4,164 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionButton } from "@/components/dashboard/action-button";
 import { Card } from "@/components/dashboard/card";
 import { Button } from "@/components/ui/button";
-import { callAction, getHealth, getStatus, type StatusResult } from "@/lib/api";
-import { WEB_APP_CONFIG } from "@/lib/template";
+import {
+  callAction,
+  getActivity,
+  getBearerToken,
+  getCapabilities,
+  getHealth,
+  getStatus,
+  type StatusResult,
+} from "@/lib/api";
+import { type CapabilityState, capabilityStateFor, scopeAllowed } from "@/lib/request-state";
+import { type ActionScope, WEB_APP_CONFIG } from "@/lib/template";
 
 type HealthState = "ok" | "error" | "loading";
 
 interface ActivityItem {
-  id: number;
+  id: string;
   time: string;
   action: string;
   result: string;
   ok: boolean;
 }
 
+const QUICK_ACTIONS: ReadonlyArray<{ id: string; label: string; scope: ActionScope }> = [
+  { id: "help", label: "Help", scope: "public" },
+  { id: "flux.docker.df", label: "Docker Disk", scope: "synapse:read" },
+  { id: "scout.nodes", label: "Scout Nodes", scope: "synapse:read" },
+];
+
 export default function DashboardPage() {
   const [health, setHealth] = useState<HealthState>("loading");
   const [serverStatus, setServerStatus] = useState<StatusResult | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const nextIdRef = useRef(1);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [quickActionError, setQuickActionError] = useState<string | null>(null);
+  const [capability, setCapability] = useState<CapabilityState>("checking");
+  const [runningActions, setRunningActions] = useState<Set<string>>(() => new Set());
+  const runningActionsRef = useRef(new Set<string>());
+  const actionControllersRef = useRef(new Map<string, AbortController>());
+  const activityControllerRef = useRef<AbortController | null>(null);
+  const activityGenerationRef = useRef(0);
+  const mountedRef = useRef(true);
 
-  const checkHealth = useCallback(async () => {
-    const res = await getHealth();
+  const checkHealth = useCallback(async (signal?: AbortSignal) => {
+    const res = await getHealth(signal);
+    if (signal?.aborted) return;
     setHealth(res.data?.status === "ok" ? "ok" : "error");
   }, []);
 
-  const checkStatus = useCallback(async () => {
-    const res = await getStatus();
+  const checkStatus = useCallback(async (signal?: AbortSignal) => {
+    const res = await getStatus(signal);
+    if (signal?.aborted) return;
     if (res.data) setServerStatus(res.data);
   }, []);
 
   useEffect(() => {
-    checkHealth();
-    checkStatus();
-    const interval = setInterval(checkHealth, 10_000);
-    return () => clearInterval(interval);
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      await checkHealth(controller.signal);
+      if (!controller.signal.aborted) timer = setTimeout(poll, 10_000);
+    };
+    void poll();
+    void checkStatus(controller.signal);
+    return () => {
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
   }, [checkHealth, checkStatus]);
 
-  const addActivity = useCallback((action: string, result: string, ok: boolean) => {
-    const id = nextIdRef.current++;
-    const item: ActivityItem = { id, time: new Date().toLocaleTimeString(), action, result, ok };
-    setActivity((prev) => [item, ...prev].slice(0, 20));
+  useEffect(() => {
+    const controller = new AbortController();
+    const checkCapabilities = async () => {
+      const result = await getCapabilities(controller.signal);
+      if (controller.signal.aborted) return;
+      setCapability(
+        capabilityStateFor(result.data, result.status, Boolean(getBearerToken()), result.error),
+      );
+    };
+    void checkCapabilities();
+    return () => controller.abort();
   }, []);
 
-  const summarize = (value: unknown) => {
-    if (typeof value === "string") return value;
-    return JSON.stringify(value);
-  };
-
-  const handleHelp = async () => {
-    const res = await callAction("help");
-    addActivity("help", res.data ? summarize(res.data) : (res.error ?? "error"), !res.error);
-  };
-
-  const handleDockerDf = async () => {
-    const res = await callAction("flux.docker.df");
-    addActivity(
-      "flux.docker.df",
-      res.data ? summarize(res.data) : (res.error ?? "error"),
-      !res.error,
+  const refreshActivity = useCallback(async () => {
+    activityControllerRef.current?.abort();
+    const controller = new AbortController();
+    activityControllerRef.current = controller;
+    const generation = ++activityGenerationRef.current;
+    const result = await getActivity(controller.signal);
+    if (controller.signal.aborted || generation !== activityGenerationRef.current) {
+      return;
+    }
+    if (!result.data) {
+      setActivityError(describeApiError(result.error, result.status));
+      return;
+    }
+    setActivityError(null);
+    setActivity(
+      result.data.events.map((event) => ({
+        id: `server:${event.sequence}`,
+        time: new Date(event.timestamp).toLocaleTimeString(),
+        action: `${event.transport}:${event.action}`,
+        result: event.error ?? (event.ok ? "completed" : "failed"),
+        ok: event.ok,
+      })),
     );
-  };
+  }, []);
 
-  const handleNodes = async () => {
-    const res = await callAction("scout.nodes");
-    addActivity("scout.nodes", res.data ? summarize(res.data) : (res.error ?? "error"), !res.error);
-  };
+  useEffect(() => {
+    mountedRef.current = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      await refreshActivity();
+      if (mountedRef.current) timer = setTimeout(poll, 5_000);
+    };
+    void poll();
+    return () => {
+      mountedRef.current = false;
+      activityControllerRef.current?.abort();
+      for (const controller of actionControllersRef.current.values()) controller.abort();
+      if (timer) clearTimeout(timer);
+    };
+  }, [refreshActivity]);
+
+  const runQuickAction = useCallback(
+    async (quickAction: (typeof QUICK_ACTIONS)[number]) => {
+      const { id, scope } = quickAction;
+      if (!scopeAllowed(capability, scope)) {
+        setQuickActionError(
+          capability === "unavailable"
+            ? "Server capabilities are unavailable. Try again when the server is reachable."
+            : "This quick action requires a browser credential with read access. Open Tool Runner to authenticate.",
+        );
+        return;
+      }
+      if (runningActionsRef.current.has(id)) return;
+      runningActionsRef.current.add(id);
+      setRunningActions(new Set(runningActionsRef.current));
+      setQuickActionError(null);
+      const controller = new AbortController();
+      actionControllersRef.current.set(id, controller);
+      try {
+        const result = await callAction(id, {}, controller.signal);
+        if (controller.signal.aborted) return;
+        if (result.error) {
+          setQuickActionError(describeApiError(result.error, result.status));
+          return;
+        }
+        await refreshActivity();
+      } finally {
+        actionControllersRef.current.delete(id);
+        runningActionsRef.current.delete(id);
+        if (mountedRef.current) setRunningActions(new Set(runningActionsRef.current));
+      }
+    },
+    [capability, refreshActivity],
+  );
+
+  const readActionsDisabled = !scopeAllowed(capability, "synapse:read");
 
   const statusColor: Record<HealthState, string> = {
     ok: "var(--aurora-success)",
@@ -203,13 +296,31 @@ export default function DashboardPage() {
           Quick Actions
         </h2>
         <div className="flex flex-wrap gap-3">
-          <ActionButton onClick={handleHelp} label="Help" />
-          <ActionButton onClick={handleDockerDf} label="Docker Disk" />
-          <ActionButton onClick={handleNodes} label="Scout Nodes" />
+          {QUICK_ACTIONS.map((quickAction) => (
+            <ActionButton
+              key={quickAction.id}
+              onClick={() => void runQuickAction(quickAction)}
+              label={quickAction.label}
+              loading={runningActions.has(quickAction.id)}
+              disabled={!scopeAllowed(capability, quickAction.scope)}
+            />
+          ))}
           <Button asChild variant="neutral">
             <a href="/tools/">Open Tool Runner →</a>
           </Button>
         </div>
+        {quickActionError && (
+          <p role="alert" className="mt-3 text-sm" style={{ color: "var(--aurora-error)" }}>
+            {quickActionError}
+          </p>
+        )}
+        {!quickActionError && readActionsDisabled && capability !== "checking" && (
+          <p className="mt-3 text-sm" style={{ color: "var(--aurora-text-muted)" }}>
+            {capability === "unavailable"
+              ? "Server capabilities are unavailable; protected quick actions are disabled."
+              : "Protected quick actions require read access. Open Tool Runner to authenticate."}
+          </p>
+        )}
       </div>
 
       {/* Activity feed */}
@@ -233,9 +344,13 @@ export default function DashboardPage() {
         >
           Recent Activity
         </h2>
-        {activity.length === 0 ? (
+        {activityError ? (
+          <p role="alert" style={{ color: "var(--aurora-error)", fontSize: "0.875rem" }}>
+            {activityError}
+          </p>
+        ) : activity.length === 0 ? (
           <p style={{ color: "var(--aurora-text-muted)", fontSize: "0.875rem" }}>
-            No activity yet — click a quick action above.
+            No shared REST or MCP activity yet.
           </p>
         ) : (
           <div className="space-y-2">
@@ -282,4 +397,10 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+function describeApiError(error: string | undefined, status: number | undefined): string {
+  if (status === 401) return "Authentication is required or the browser credential has expired.";
+  if (status === 403) return "The browser credential lacks permission for this operation.";
+  return status ? `${error ?? "Request failed"} (HTTP ${status})` : (error ?? "Request failed");
 }

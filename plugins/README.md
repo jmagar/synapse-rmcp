@@ -5,7 +5,7 @@ Claude Code and Codex plugin packages for the MCP server. Both platforms share t
 ## Structure
 
 ```
-plugins/example/
+plugins/synapse2/
 ├── .claude-plugin/
 │   └── plugin.json       # Claude Code manifest
 ├── .codex-plugin/
@@ -16,7 +16,7 @@ plugins/example/
 │   ├── hooks.json        # Lifecycle hook definitions
 │   └── plugin-setup.sh  # Deployment and validation script
 └── skills/
-    ├── example/
+    ├── synapse2/
     │   └── SKILL.md      # Tool documentation for Claude and Codex
     └── scaffold-project/
         └── SKILL.md      # Turns scaffold_intent JSON into an approval-first plan
@@ -34,7 +34,7 @@ Claude Code plugin manifest. Defines the plugin identity, MCP server connection,
 
 | Field | Type | Description |
 |---|---|---|
-| `server_url` | string | MCP HTTP server base URL (default: `http://localhost:3000`) |
+| `server_url` | string | MCP HTTP server base URL (default: `http://localhost:40080`) |
 | `api_token` | string (sensitive) | Bearer token for auth |
 | `no_auth` | boolean | Disable auth (loopback dev only; non-loopback requires an upstream gateway) |
 | `auth_mode` | string | `bearer` or `oauth` |
@@ -42,10 +42,6 @@ Claude Code plugin manifest. Defines the plugin identity, MCP server connection,
 | `google_client_id` | string (sensitive) | Google OAuth client ID |
 | `google_client_secret` | string (sensitive) | Google OAuth client secret |
 | `auth_admin_email` | string | OAuth admin email |
-| `example_api_url` | string | Upstream service URL |
-| `example_api_key` | string (sensitive) | Upstream service API key |
-
-**TEMPLATE**: Replace `example_api_url` / `example_api_key` with your service's credential fields.
 
 ### `.codex-plugin/plugin.json`
 
@@ -65,7 +61,7 @@ Shared MCP server connection config used by both plugins. Points both clients at
 ```json
 {
   "mcpServers": {
-    "example": {
+    "synapse2": {
       "type": "http",
       "url": "${user_config.server_url}/mcp",
       "headers": {
@@ -98,8 +94,8 @@ The lifecycle adapter. Runs on every session start and config change.
 - Reads `CLAUDE_PLUGIN_OPTION_*` env vars from plugin `userConfig`
 - Exports those values as the binary's runtime environment variables
 - Prepares the plugin appdata directory
-- Ensures `example` is available on `PATH`
-- Calls `example setup plugin-hook "$@"`
+- Ensures `synapse` is available on `PATH`
+- Calls `synapse setup plugin-hook "$@"`
 
 Deployment policy, repair behavior, and failure classification live in the Rust binary, not in the hook script. The script is idempotent and intentionally does not manage Docker, systemd, config rewrites, port conflicts, or OAuth redirect construction itself.
 
@@ -107,9 +103,9 @@ Deployment policy, repair behavior, and failure classification live in the Rust 
 
 ## Skills
 
-### `skills/example/SKILL.md`
+### `skills/synapse2/SKILL.md`
 
-Three-tier structured documentation for the `example` MCP tool, used by both Claude Code and Codex to understand when and how to invoke the tool.
+Three-tier structured documentation for the Synapse2 `flux` and `scout` MCP tools, used by Claude Code and Codex to understand when and how to invoke them.
 
 **Tier 1** (above the fold): tool name, quick action table, most common usage.  
 **Tier 2**: full action reference — parameters, types, example calls, response shapes.  
@@ -117,31 +113,20 @@ Three-tier structured documentation for the `example` MCP tool, used by both Cla
 
 Also includes HTTP fallback examples using `CLAUDE_PLUGIN_OPTION_SERVER_URL` and `CLAUDE_PLUGIN_OPTION_API_TOKEN` env vars for when the MCP connection isn't available.
 
-**TEMPLATE**: Replace the action table and examples with your service's actual actions.
 
 ---
 
-## Version sync
+## Versioning
 
-Three files must stay in sync when you bump the version:
-
-| File | Field |
-|---|---|
-| `Cargo.toml` | `version` |
-| `.claude-plugin/plugin.json` | `version` |
-| `.codex-plugin/plugin.json` | `version` |
-
-Use `scripts/bump-version.sh patch` (or `minor`/`major`) to update all of them atomically.
+Plugin manifests intentionally do not contain a `version` field. Marketplace
+versions are derived from git commits; release version synchronization is owned
+by `Cargo.toml`, the npm launcher package, and the release manifest.
 
 ---
 
-## TEMPLATE checklist
+## Maintenance checklist
 
-When adapting this plugin for a real service:
-
-1. Replace all `example` / `Example` / `EXAMPLE_` identifiers with your service name.
-2. Update `userConfig` in both `plugin.json` files to match your service's credential fields.
-3. Update `skills/example/SKILL.md` with your actual actions, parameters, and examples.
-4. Set `brandColor` in `.codex-plugin/plugin.json` to your service's color.
-5. Replace `defaultPrompt` entries in the Codex manifest with realistic prompts for your service.
-6. Run `scripts/bump-version.sh` after any version change.
+1. Keep Claude, Codex, and Gemini manifests pointed at the same Synapse2 server.
+2. Keep `skills/synapse2/SKILL.md` aligned with the canonical operation registry.
+3. Preserve the no-`version` manifest contract.
+4. Run `scripts/validate-plugin-layout.sh` after plugin changes.

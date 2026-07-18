@@ -4,7 +4,7 @@
 //! `SynapseService::flux_container_*` methods) and return `String` markdown.
 //!
 //! The JSON shapes mirror `docker container ls -a --format '{{json .}}'` and
-//! `docker container inspect` output passed through [`crate::docker::docker_json`].
+//! Container values returned by the Bollard-backed service layer.
 //!
 //! ## STYLE.md compliance
 //! - §3.1  Plain text titles (no `##` prefix)
@@ -35,7 +35,7 @@ fn container_status_symbol(state: &str) -> char {
 
 /// Format `docker container ls -a --format '{{json .}}'` output as markdown.
 ///
-/// Accepts the `stdout` field value from [`crate::docker::docker_json`] which
+/// Accepts container output from the shared service response which
 /// contains one JSON object per line.
 ///
 /// # Example output

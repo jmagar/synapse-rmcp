@@ -1,4 +1,7 @@
-use super::{HostConfig, validate_command, validate_safe_path, validate_scout_read_path};
+use super::{
+    HostConfig, HostProtocol, validate_command, validate_command_args, validate_safe_path,
+    validate_scout_read_path,
+};
 use std::fs;
 
 #[test]
@@ -93,6 +96,67 @@ fn validate_command_rejects_git() {
         "git should not be in ALLOWED_READ_COMMANDS — got {result:?}"
     );
     assert!(result.unwrap_err().to_string().contains("not allowlisted"));
+}
+
+#[test]
+fn command_policy_rejects_execution_capable_rg_options() {
+    let host = HostConfig::local();
+    for args in [
+        vec!["--pre", "sh"],
+        vec!["--pre=sh"],
+        vec!["--config", "/tmp/rg.conf"],
+        vec!["--config=/tmp/rg.conf"],
+    ] {
+        let result = validate_command_args(&host, "rg", &args);
+        assert!(result.is_err(), "rg args must be denied: {args:?}");
+    }
+}
+
+#[test]
+fn command_policy_applies_read_roots_to_filesystem_operands() {
+    let host = HostConfig::local();
+    assert!(validate_command_args(&host, "cat", &["/tmp/readable.txt"]).is_ok());
+    assert!(validate_command_args(&host, "cat", &["/etc/passwd"]).is_err());
+    assert!(validate_command_args(&host, "grep", &["needle", "/etc/passwd"]).is_err());
+}
+
+#[test]
+fn command_policy_rejects_relative_and_option_carried_paths() {
+    let host = HostConfig::local();
+    assert!(validate_command_args(&host, "head", &["../../etc/passwd"]).is_err());
+    assert!(
+        validate_command_args(
+            &host,
+            "diff",
+            &["--from-file=/etc/passwd", "/tmp/readable.txt"],
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn command_policy_rejects_untyped_custom_commands() {
+    let mut host = HostConfig::local();
+    host.exec_allowlist.push("find".into());
+    assert!(validate_command_args(&host, "find", &["/tmp", "-exec", "sh"]).is_err());
+}
+
+#[test]
+fn connection_identity_changes_when_topology_or_credentials_change() {
+    let base = HostConfig {
+        protocol: HostProtocol::Ssh,
+        host: "old.example".into(),
+        ssh_user: Some("ops".into()),
+        ssh_key_path: Some("/keys/old".into()),
+        ssh_port: Some(22),
+        ..HostConfig::local()
+    };
+    let mut retargeted = base.clone();
+    retargeted.host = "new.example".into();
+    assert_ne!(base.connection_key(), retargeted.connection_key());
+    retargeted = base.clone();
+    retargeted.ssh_key_path = Some("/keys/new".into());
+    assert_ne!(base.connection_key(), retargeted.connection_key());
 }
 
 #[test]

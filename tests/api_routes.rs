@@ -158,6 +158,78 @@ async fn status_returns_only_local_redacted_metadata() {
     assert!(body.get("api_key").is_none(), "{body}");
 }
 
+#[tokio::test]
+async fn activity_endpoint_reports_rest_calls_from_shared_state() {
+    let app = server::router(loopback_state());
+    let (status, _) = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/synapse2",
+        Some(json!({"action": "scout.nodes", "params": {}})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = request_json(app, Method::GET, "/activity", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["events"][0]["transport"], "rest");
+    assert_eq!(body["events"][0]["action"], "scout.nodes");
+    assert_eq!(body["events"][0]["ok"], true);
+}
+
+#[tokio::test]
+async fn capabilities_report_authoritative_scopes() {
+    let loopback = server::router(loopback_state());
+    let (status, body) = request_json(loopback, Method::GET, "/capabilities", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body["scopes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("synapse:read"))
+    );
+    assert!(
+        body["scopes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("synapse:write"))
+    );
+
+    let mounted = server::router(synapse2::testing::bearer_state("read-token"));
+    let (status, _) = request_json(mounted.clone(), Method::GET, "/capabilities", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = request_json_with_auth(
+        mounted,
+        Method::GET,
+        "/capabilities",
+        None,
+        Some("read-token"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body["scopes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("synapse:read"))
+    );
+    assert!(
+        !body["scopes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("synapse:write"))
+    );
+    assert_eq!(body["destructive_allowed"], false);
+}
+
+#[tokio::test]
+async fn readiness_is_separate_from_liveness() {
+    let app = server::router(loopback_state());
+    let (status, body) = request_json(app, Method::GET, "/ready", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "ready");
+}
+
 /// Destructive REST actions (no elicitation channel) must return 403, not 500.
 ///
 /// `flux.docker.prune` is write-scoped and confirmer-gated. On loopback state
@@ -262,4 +334,23 @@ async fn oversized_body_returns_413() {
     let response = app.oneshot(request).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn readiness_redacts_internal_topology_errors() {
+    struct FailingHosts;
+    impl synapse2::host_config::HostRepository for FailingHosts {
+        fn load_hosts(&self) -> anyhow::Result<Vec<synapse2::synapse::HostConfig>> {
+            anyhow::bail!("secret path /private/topology.json failed")
+        }
+    }
+
+    let mut state = loopback_state();
+    state.service = state
+        .service
+        .with_host_repo(std::sync::Arc::new(FailingHosts));
+    let (status, body) = request_json(server::router(state), Method::GET, "/ready", None).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["error"], "topology unavailable");
+    assert!(!body.to_string().contains("/private/topology.json"));
 }

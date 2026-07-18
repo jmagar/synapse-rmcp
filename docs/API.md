@@ -13,6 +13,13 @@ the full action set.
 All surfaces call the same service layer; where an action is reachable over REST,
 it produces the same result as MCP/CLI.
 
+Browser clients can discover their effective authorization with
+`GET /capabilities`. The authenticated response contains `scopes` and
+`destructive_allowed`; loopback development reports both `synapse:read` and
+`synapse:write`, while mounted deployments report the scopes from the validated
+credential. `GET /activity` returns the bounded, server-sequenced REST/MCP event
+stream and requires read scope on mounted deployments.
+
 ## MCP Tools
 
 Both tools follow the same calling convention:
@@ -238,7 +245,7 @@ synapse flux docker pull --host myhost --image nginx:latest
 synapse flux container list
 synapse flux container list --state running
 synapse flux container logs --container-id abc123 --lines 100
-synapse flux container exec --container-id abc123 --command ls -la /var/log
+synapse flux container exec --host myhost --container-id abc123 --command ls -la /var/log
 
 # flux host
 synapse flux host status
@@ -298,7 +305,7 @@ surfaces. Some write-scope actions are not available over REST.
 ## Parity Verification
 
 `tests/parity.rs` asserts every action in
-`../synapse-mcp/docs/INVENTORY.md` is covered by synapse2's `ACTION_SPECS`
+`../synapse-mcp/docs/INVENTORY.md` is covered by synapse2's `OPERATION_SPECS`
 and help map. Run with:
 
 ```bash

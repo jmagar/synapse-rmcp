@@ -33,6 +33,7 @@ use anyhow::Result;
 use std::collections::HashSet;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use ssh2_config::{ParseRule, SshConfig};
 
@@ -83,6 +84,13 @@ pub struct FileHostRepository {
     config_file_paths: Vec<PathBuf>,
     /// Path to the SSH config file, or `None` to skip SSH auto-discovery.
     ssh_config_path: Option<PathBuf>,
+    snapshot: Mutex<Option<HostSnapshot>>,
+}
+
+#[derive(Clone)]
+struct HostSnapshot {
+    revision: Vec<(PathBuf, Option<(u64, u128)>)>,
+    hosts: Vec<HostConfig>,
 }
 
 impl Default for FileHostRepository {
@@ -92,6 +100,7 @@ impl Default for FileHostRepository {
             env_hosts_json: std::env::var("SYNAPSE_HOSTS_CONFIG").ok(),
             config_file_paths: default_config_paths(),
             ssh_config_path: default_ssh_config_path(),
+            snapshot: Mutex::new(None),
         }
     }
 }
@@ -107,6 +116,7 @@ impl FileHostRepository {
             env_hosts_json,
             config_file_paths,
             ssh_config_path,
+            snapshot: Mutex::new(None),
         }
     }
 
@@ -193,6 +203,16 @@ impl FileHostRepository {
 
 impl HostRepository for FileHostRepository {
     fn load_hosts(&self) -> Result<Vec<HostConfig>> {
+        let revision = self.source_revision();
+        let mut snapshot = self
+            .snapshot
+            .lock()
+            .map_err(|_| anyhow::anyhow!("host topology snapshot lock poisoned"))?;
+        if let Some(cached) = snapshot.as_ref()
+            && cached.revision == revision
+        {
+            return Ok(cached.hosts.clone());
+        }
         // Step 1: Find the single winning explicit source.
         let mut explicit: Vec<HostConfig> = self.load_from_env_json()?;
         if explicit.is_empty() {
@@ -212,7 +232,32 @@ impl HostRepository for FileHostRepository {
         // Step 3: Ensure the built-in `local` host is always present.
         let hosts = ensure_local(hosts);
 
+        *snapshot = Some(HostSnapshot {
+            revision,
+            hosts: hosts.clone(),
+        });
         Ok(hosts)
+    }
+}
+
+impl FileHostRepository {
+    fn source_revision(&self) -> Vec<(PathBuf, Option<(u64, u128)>)> {
+        self.config_file_paths
+            .iter()
+            .chain(self.ssh_config_path.iter())
+            .map(|path| {
+                let revision = std::fs::metadata(path).ok().map(|metadata| {
+                    let modified = metadata
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|duration| duration.as_nanos())
+                        .unwrap_or(0);
+                    (metadata.len(), modified)
+                });
+                (path.clone(), revision)
+            })
+            .collect()
     }
 }
 

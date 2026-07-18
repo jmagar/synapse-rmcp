@@ -40,7 +40,7 @@ just runtime-current   # compare running service with the local binary
 |---|---|
 | `web` | Build `apps/web/out` with pnpm. |
 | `builder` | Compile package `synapse2` and copy `target/release/synapse` to `/usr/local/bin/synapse`. |
-| `runtime` | Minimal Debian runtime with `curl`, `gosu`, `openssh-client`, and Docker CLI support. |
+| `runtime` | Minimal Debian runtime with `curl`, `gosu`, and `openssh-client`. Docker access uses Bollard over the mounted socket; the Docker CLI is not installed. |
 
 The runtime image exposes `40080/tcp`, healthchecks `http://localhost:40080/health`,
 and starts with:
@@ -71,12 +71,11 @@ services:
       SYNAPSE_MCP_PORT: "40080"
       SYNAPSE_MCP_TOKEN: "${SYNAPSE_MCP_TOKEN:-}"
     ports:
-      - "${SYNAPSE_MCP_HOST_PORT:-40080}:40080/tcp"
+      - "${SYNAPSE_MCP_BIND_HOST:-127.0.0.1}:${SYNAPSE_MCP_HOST_PORT:-40080}:40080/tcp"
     volumes:
       - ${HOME}/.synapse2:/data
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.ssh:/home/synapse/.ssh:ro
-    user: "1000:1000"
     group_add:
       - "${DOCKER_GID:?set DOCKER_GID from: getent group docker | cut -d: -f3}"
 ```
@@ -87,6 +86,11 @@ Key requirements:
 - Set `DOCKER_GID` when mounting `/var/run/docker.sock`; otherwise `flux` Docker
   actions will not reach the daemon.
 - Set `SYNAPSE_MCP_TOKEN` for bearer deployments, or configure OAuth explicitly.
+- For Labby or another trusted gateway, `SYNAPSE_NOAUTH=true` delegates auth/authz
+  to that gateway. Keep the container port isolated from every other peer.
+- `SYNAPSE_MCP_HOST=0.0.0.0` is the container-internal bind. Keep the host
+  publish address at `SYNAPSE_MCP_BIND_HOST=127.0.0.1` unless an authenticated
+  reverse proxy or firewall is the explicit network boundary.
 - Mount `~/.ssh` read-only at `/home/synapse/.ssh` so `scout` host discovery can
   read the operator SSH config.
 
@@ -107,7 +111,7 @@ directory. Do not bake secrets into the image.
 
 - `/health` is unauthenticated and used by Docker healthchecks.
 - `/mcp` and `/v1/synapse2` require auth outside loopback unless
-  `SYNAPSE_NOAUTH=true` is set for a trusted upstream gateway.
+  `SYNAPSE_NOAUTH=true` explicitly delegates auth/authz to an isolated trusted gateway.
 - Recreate the container after editing `.env`:
 
 ```bash
@@ -115,6 +119,26 @@ docker compose up -d --force-recreate
 ```
 
 Use `just auth-smoke` for a bearer-auth smoke test against a running server.
+
+## Versioned rollout and rollback
+
+Production deployments should pin `SYNAPSE2_VERSION` to a release tag such as
+`0.5.4` or an immutable commit tag such as `sha-<full-commit>`, rather than rely
+on `latest`:
+
+```bash
+SYNAPSE2_VERSION=0.5.4 docker compose -f docker-compose.prod.yml pull
+SYNAPSE2_VERSION=0.5.4 docker compose -f docker-compose.prod.yml up -d
+curl -fsS http://127.0.0.1:40080/ready
+```
+
+Record the previous value before rollout. If readiness or the authenticated
+smoke test fails, restore it and recreate the service:
+
+```bash
+SYNAPSE2_VERSION=<previous-tag> docker compose -f docker-compose.prod.yml pull
+SYNAPSE2_VERSION=<previous-tag> docker compose -f docker-compose.prod.yml up -d --force-recreate
+```
 
 ## Build artifacts
 

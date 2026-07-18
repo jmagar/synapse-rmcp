@@ -1,7 +1,13 @@
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 use std::path::{Component, Path};
+
+mod command_policy;
+
+pub(crate) use command_policy::command_filesystem_operand_indices;
+pub use command_policy::{
+    ALLOWED_READ_COMMANDS, EXEC_DENYLIST, validate_command, validate_command_args,
+};
 
 #[cfg(test)]
 #[path = "synapse_tests.rs"]
@@ -63,6 +69,23 @@ impl HostConfig {
             exec_allowlist: Vec::new(),
         }
     }
+
+    /// Complete identity for every transport-affecting topology field.
+    /// Caches must never key only by alias: aliases can be retargeted at runtime.
+    pub fn connection_key(&self) -> String {
+        format!(
+            "{}|{:?}|{}|{}|{}|{}|{}|{}|{}",
+            self.name,
+            self.protocol,
+            self.host,
+            self.port.map(|v| v.to_string()).unwrap_or_default(),
+            self.ssh_user.as_deref().unwrap_or_default(),
+            self.ssh_port.map(|v| v.to_string()).unwrap_or_default(),
+            self.ssh_key_path.as_deref().unwrap_or_default(),
+            self.ssh_config_path.as_deref().unwrap_or_default(),
+            self.docker_socket_path.as_deref().unwrap_or_default(),
+        )
+    }
 }
 
 fn default_protocol() -> HostProtocol {
@@ -74,18 +97,6 @@ fn default_protocol() -> HostProtocol {
 pub struct HostsFile {
     pub hosts: Vec<HostConfig>,
 }
-
-pub const ALLOWED_READ_COMMANDS: &[&str] = &[
-    "cat", "head", "tail", "grep", "rg", "ls", "tree", "wc", "uniq", "diff", "stat", "file", "du",
-    "df", "pwd", "hostname", "uptime", "whoami",
-];
-
-pub const EXEC_DENYLIST: &[&str] = &[
-    "sh", "bash", "zsh", "dash", "sudo", "su", "doas", "python", "python3", "perl", "ruby", "node",
-    "lua", "php", "curl", "wget", "nc", "ncat", "socat", "rm", "dd", "mkfs", "cp", "mv", "chmod",
-    "chown", "docker", "podman", "kubectl", "kill", "pkill", "env", "xargs", "awk", "sed", "vi",
-    "vim", "nano", "cargo", "rustc", "apt", "apk", "dnf",
-];
 
 pub fn validate_safe_path(path: &str) -> Result<()> {
     if path.is_empty() {
@@ -217,26 +228,3 @@ fn path_is_under_root(path: &str, root: &str) -> bool {
             .strip_prefix(root)
             .is_some_and(|rest| rest.starts_with('/'))
 }
-
-pub fn validate_command(command: &str, host_allowlist: &[String]) -> Result<()> {
-    if command.is_empty()
-        || !command
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
-        bail!("command name is invalid");
-    }
-    let deny: BTreeSet<&str> = EXEC_DENYLIST.iter().copied().collect();
-    if deny.contains(command) {
-        bail!("command is denied");
-    }
-    let allowed: BTreeSet<&str> = ALLOWED_READ_COMMANDS.iter().copied().collect();
-    if allowed.contains(command) || host_allowlist.iter().any(|c| c == command) {
-        return Ok(());
-    }
-    bail!("command is not allowlisted");
-}
-
-// load_hosts() and host_config_paths() have been moved to src/host_config.rs
-// as FileHostRepository / default_config_paths().
-// Use crate::host_config::FileHostRepository::default() for production loading.

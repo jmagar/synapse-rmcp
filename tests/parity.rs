@@ -4,7 +4,7 @@
 //! # What this test checks
 //!
 //! For each row in the INVENTORY table:
-//! - The **top-level action** (e.g. `container`, `zfs`) exists in `ACTION_SPECS`
+//! - The **top-level action** (e.g. `container`, `zfs`) exists in `OPERATION_SPECS`
 //!   via [`synapse2::actions::is_known_action`].
 //! - The **subaction** (e.g. `list`, `pools`) is documented in the help map via
 //!   [`synapse2::mcp::help::topic_markdown`].  Scout simple actions (no
@@ -12,7 +12,7 @@
 //!   Help rows (`flux help`, `scout help`, `synapse_help`) collapse to the
 //!   single `help` action.
 //!
-//! Both checks hit real production data structures — `ACTION_SPECS` is what the
+//! Both checks hit real production data structures — `OPERATION_SPECS` is what the
 //! dispatch gate uses to route or reject calls, and the help map is authoritative
 //! for which topic keys (action:subaction pairs) are documented and wired. An
 //! action removed from either will cause this test to fail.
@@ -214,7 +214,7 @@ fn parity_with_synapse_mcp_inventory() {
     if !missing.is_empty() {
         panic!(
             "{} INVENTORY action(s) not covered by synapse2:\n  {}\n\n\
-             Add the missing actions to ACTION_SPECS, dispatch arms, and \
+             Add the missing actions to OPERATION_SPECS, dispatch arms, and \
              help.rs before closing this bead.",
             missing.len(),
             missing.join("\n  ")

@@ -12,8 +12,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 CARGO = ROOT / "Cargo.toml"
-ACTIONS = ROOT / "src/actions.rs"
+OPERATIONS = ROOT / "src/actions/operations.rs"
 OUT = ROOT / "docs/generated/openapi.json"
+WEB_METADATA = ROOT / "apps/web/lib/generated-operation-metadata.json"
 
 REST_ENDPOINT = "/v1/synapse2"
 
@@ -25,24 +26,6 @@ _PARAM_EXAMPLES: dict[str, dict] = {
     "scout.peek": {"host": "myhost", "path": "/etc/hostname"},
     "scout.exec": {"host": "myhost", "path": "/tmp", "command": "hostname"},
 }
-
-REST_ACTIONS: list[dict[str, str]] = [
-    {"name": "help", "scope": "public", "transport": "Any"},
-    {"name": "flux.docker.info", "scope": "synapse:read", "transport": "Any"},
-    {"name": "flux.docker.df", "scope": "synapse:read", "transport": "Any"},
-    {"name": "flux.docker.images", "scope": "synapse:read", "transport": "Any"},
-    {"name": "flux.docker.networks", "scope": "synapse:read", "transport": "Any"},
-    {"name": "flux.docker.volumes", "scope": "synapse:read", "transport": "Any"},
-    {"name": "flux.docker.pull", "scope": "synapse:write", "transport": "Any"},
-    {"name": "flux.docker.build", "scope": "synapse:write", "transport": "Any"},
-    {"name": "flux.docker.rmi", "scope": "synapse:write", "transport": "Any"},
-    {"name": "flux.docker.prune", "scope": "synapse:write", "transport": "Any"},
-    {"name": "flux.container.list", "scope": "synapse:read", "transport": "Any"},
-    {"name": "scout.nodes", "scope": "synapse:read", "transport": "Any"},
-    {"name": "scout.peek", "scope": "synapse:read", "transport": "Any"},
-    {"name": "scout.exec", "scope": "synapse:write", "transport": "Any"},
-]
-
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -56,41 +39,64 @@ def package_version() -> str:
     return match.group(1)
 
 
-def action_entries() -> list[dict[str, str]]:
-    text = read(ACTIONS)
-    entries = re.findall(r"ActionSpec\s*\{(.*?)\}", text, re.S)
-    actions: list[dict[str, str]] = []
-    for entry in entries:
-        name_match = re.search(r'name:\s*"([^"]+)"', entry)
-        scope_match = re.search(r"required_scope:\s*([^,\n]+)", entry)
-        transport_match = re.search(r"transport:\s*ActionTransport::(\w+)", entry)
-        if not name_match or not scope_match or not transport_match:
-            continue
-        scope_expr = scope_match.group(1).strip()
-        if scope_expr == "None":
-            scope = "public"
-        elif scope_expr == "Some(READ_SCOPE)":
+def operation_entries() -> list[dict[str, Any]]:
+    text = read(OPERATIONS)
+    pattern = re.compile(
+        r'operation!\(\s*"([^"]+)"\s*,\s*(\w+)\s*,\s*"([^"]+)"\s*,\s*'
+        r'(?:None|Some\("[^"]+"\))\s*,\s*'
+        r'(None|Some\((?:READ_SCOPE|WRITE_SCOPE)\))\s*,\s*'
+        r'(true|false)\s*,\s*(Rest|McpOnly)\s*,\s*\[(.*?)\]',
+        re.S,
+    )
+    operations: list[dict[str, Any]] = []
+    for name, tool, action, scope_expr, destructive, transport, required_text in pattern.findall(text):
+        scope = "public"
+        if "READ_SCOPE" in scope_expr:
             scope = "synapse:read"
-        elif scope_expr == "Some(WRITE_SCOPE)":
+        elif "WRITE_SCOPE" in scope_expr:
             scope = "synapse:write"
-        else:
-            scope = "synapse2:__deny__"
-        actions.append(
+        operations.append(
             {
-                "name": name_match.group(1),
+                "name": name,
+                "tool": tool,
+                "action": action,
                 "scope": scope,
-                "transport": transport_match.group(1),
+                "transport": transport,
+                "destructive": destructive == "true",
+                "required_params": re.findall(r'"([^"]+)"', required_text),
             }
         )
-    return actions
+    if not operations:
+        raise RuntimeError("could not parse OPERATION_SPECS from src/actions/operations.rs")
+    return operations
 
 
-def action_spec_count() -> int:
-    return len(re.findall(r"ActionSpec\s*\{\s*name:", read(ACTIONS)))
+def action_entries() -> list[dict[str, str]]:
+    actions: dict[str, str] = {}
+    for operation in operation_entries():
+        current = actions.get(operation["action"])
+        scope = operation["scope"]
+        if current is None or scope == "synapse:read" or scope == "public":
+            actions[operation["action"]] = scope
+    return [{"name": name, "scope": scope} for name, scope in actions.items()]
 
 
-def rest_actions() -> list[dict[str, str]]:
-    return REST_ACTIONS
+def mcp_operation_names() -> list[str]:
+    return [operation["name"] for operation in operation_entries()]
+
+
+def rest_actions() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": operation["name"],
+            "scope": operation["scope"],
+            "transport": "Rest",
+            "destructive": operation["destructive"],
+            "required_params": operation["required_params"],
+        }
+        for operation in operation_entries()
+        if operation["transport"] == "Rest"
+    ]
 
 
 def schema_ref(name: str) -> dict[str, str]:
@@ -108,8 +114,8 @@ def render() -> dict[str, Any]:
             "version": version,
             "description": (
                 "Generated OpenAPI schema for Synapse2's REST surface. "
-                "Auth modes: loopback/trusted-gateway deployments may have no local auth; "
-                "mounted bearer mode uses SYNAPSE_MCP_TOKEN; OAuth mode uses bearer JWTs. "
+                "Loopback deployments have no HTTP auth; non-loopback deployments require "
+                "SYNAPSE_MCP_TOKEN or OAuth bearer JWTs. "
                 "REST actions require their action-specific scopes when auth is mounted."
             ),
         },
@@ -143,12 +149,30 @@ def render() -> dict[str, Any]:
                     },
                 }
             },
+            "/ready": {
+                "get": {
+                    "tags": ["health"],
+                    "summary": "Readiness probe",
+                    "operationId": "getReady",
+                    "security": [],
+                    "responses": {
+                        "200": {
+                            "description": "Host topology is loadable",
+                            "content": {"application/json": {"schema": schema_ref("ReadinessResponse")}},
+                        },
+                        "503": {
+                            "description": "Host topology is unavailable or timed out",
+                            "content": {"application/json": {"schema": schema_ref("ReadinessResponse")}},
+                        },
+                    },
+                }
+            },
             "/openapi.json": {
                 "get": {
                     "tags": ["health"],
                     "summary": "OpenAPI schema",
                     "operationId": "getOpenApiSchema",
-                    "security": [],
+                    "security": [{"BearerAuth": []}, {}],
                     "responses": {
                         "200": {
                             "description": "Generated OpenAPI schema for the REST surface",
@@ -213,6 +237,7 @@ def render() -> dict[str, Any]:
                         "400": {"$ref": "#/components/responses/BadRequest"},
                         "401": {"$ref": "#/components/responses/Unauthorized"},
                         "403": {"$ref": "#/components/responses/Forbidden"},
+                        "429": {"$ref": "#/components/responses/TooManyRequests"},
                         "500": {"$ref": "#/components/responses/InternalError"},
                     },
                 }
@@ -224,7 +249,7 @@ def render() -> dict[str, Any]:
                     "type": "http",
                     "scheme": "bearer",
                     "bearerFormat": "opaque",
-                    "description": "Static bearer token in bearer mode; OAuth mode also uses bearer JWTs. Loopback and trusted-gateway modes may not require local auth.",
+                    "description": "Static bearer token in bearer mode; OAuth mode also uses bearer JWTs. Loopback mode does not require HTTP auth.",
                 }
             },
             "schemas": {
@@ -270,6 +295,15 @@ def render() -> dict[str, Any]:
                     "properties": {"status": {"type": "string", "const": "ok"}},
                     "additionalProperties": False,
                 },
+                "ReadinessResponse": {
+                    "type": "object",
+                    "required": ["status"],
+                    "properties": {
+                        "status": {"type": "string", "enum": ["ready", "not_ready"]},
+                        "error": {"type": "string"},
+                    },
+                    "additionalProperties": False,
+                },
                 "HelpResponse": {
                     "type": "object",
                     "required": ["actions", "mcp_only_actions", "usage", "examples"],
@@ -285,6 +319,15 @@ def render() -> dict[str, Any]:
                     "type": "object",
                     "required": ["error"],
                     "properties": {"error": {"type": "string"}},
+                    "additionalProperties": False,
+                },
+                "OverloadResponse": {
+                    "type": "object",
+                    "required": ["error", "retryable"],
+                    "properties": {
+                        "error": {"type": "string", "const": "server overloaded"},
+                        "retryable": {"type": "boolean", "const": True},
+                    },
                     "additionalProperties": False,
                 },
                 "RestTruncationResponse": {
@@ -319,14 +362,25 @@ def render() -> dict[str, Any]:
                     "description": "Internal server error",
                     "content": {"application/json": {"schema": schema_ref("ErrorResponse")}},
                 },
+                "TooManyRequests": {
+                    "description": "Concurrency limit reached; retry after the indicated delay",
+                    "headers": {
+                        "Retry-After": {
+                            "required": True,
+                            "schema": {"type": "integer", "minimum": 1},
+                        }
+                    },
+                    "content": {"application/json": {"schema": schema_ref("OverloadResponse")}},
+                },
             },
         },
         "x-template": {
             "source": "scripts/check-openapi.py",
-            "action_metadata": "src/actions.rs",
+            "action_metadata": "src/actions/operations.rs",
             "rest_actions": action_names,
-            "mcp_actions": [action["name"] for action in action_entries()],
-            "mcp_only_actions": [action["name"] for action in action_entries() if action["transport"] == "McpOnly"],
+            "rest_operations": actions,
+            "mcp_actions": mcp_operation_names(),
+            "mcp_only_actions": [name for name in mcp_operation_names() if name not in action_names],
         },
     }
 
@@ -339,7 +393,7 @@ def validate_openapi(value: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     if value.get("openapi") != "3.1.0":
         failures.append("OpenAPI version must be 3.1.0")
-    for path in ["/health", "/openapi.json", "/status", REST_ENDPOINT]:
+    for path in ["/health", "/ready", "/openapi.json", "/status", REST_ENDPOINT]:
         if path not in value.get("paths", {}):
             failures.append(f"missing path {path}")
     for path, methods in value.get("paths", {}).items():
@@ -348,10 +402,8 @@ def validate_openapi(value: dict[str, Any]) -> list[str]:
                 failures.append(f"{method.upper()} {path} is missing operationId")
     action_enum = value.get("components", {}).get("schemas", {}).get("ActionName", {}).get("enum")
     entries = action_entries()
-    if len(entries) != action_spec_count():
-        failures.append(
-            f"ActionSpec parser drifted: parsed {len(entries)} entries from {action_spec_count()} specs"
-        )
+    if len(operation_entries()) != 59:
+        failures.append(f"operation registry drifted: expected 59 entries, got {len(operation_entries())}")
     expected = [action["name"] for action in rest_actions()]
     if action_enum != expected:
         failures.append(f"ActionName enum drifted: expected {expected}, got {action_enum}")
@@ -360,12 +412,12 @@ def validate_openapi(value: dict[str, Any]) -> list[str]:
         failures.append(
             f"x-template rest_actions drifted: expected {expected}, got {x_template.get('rest_actions')}"
         )
-    expected_mcp_actions = [action["name"] for action in entries]
+    if x_template.get("rest_operations") != rest_actions():
+        failures.append("x-template rest_operations drifted from src/actions/operations.rs")
+    expected_mcp_actions = mcp_operation_names()
     if x_template.get("mcp_actions") != expected_mcp_actions:
         failures.append("x-template mcp_actions drifted")
-    expected_mcp_only = [
-        action["name"] for action in entries if action["transport"] == "McpOnly"
-    ]
+    expected_mcp_only = [name for name in expected_mcp_actions if name not in expected]
     if x_template.get("mcp_only_actions") != expected_mcp_only:
         failures.append("x-template mcp_only_actions drifted")
     rest_security = value.get("paths", {}).get(REST_ENDPOINT, {}).get("post", {}).get("security")
@@ -373,6 +425,15 @@ def validate_openapi(value: dict[str, Any]) -> list[str]:
         failures.append(
             f"{REST_ENDPOINT} security must document bearer auth and no-local-auth modes"
         )
+    openapi_security = value.get("paths", {}).get("/openapi.json", {}).get("get", {}).get("security")
+    if openapi_security != [{"BearerAuth": []}, {}]:
+        failures.append("/openapi.json security must document mounted auth and loopback access")
+    ready_responses = value.get("paths", {}).get("/ready", {}).get("get", {}).get("responses", {})
+    if not {"200", "503"}.issubset(ready_responses):
+        failures.append("/ready must document both 200 and 503 responses")
+    overload = value.get("paths", {}).get(REST_ENDPOINT, {}).get("post", {}).get("responses", {}).get("429")
+    if overload != {"$ref": "#/components/responses/TooManyRequests"}:
+        failures.append(f"{REST_ENDPOINT} must document the shared 429 response")
     status_props = (
         value.get("components", {})
         .get("schemas", {})
@@ -392,19 +453,27 @@ def main() -> int:
     if not args.write and not args.check:
         args.check = True
 
-    rendered = canonical_json(render())
-    failures = validate_openapi(json.loads(rendered))
+    value = render()
+    rendered = canonical_json(value)
+    web_metadata = canonical_json(value["x-template"])
+    failures = validate_openapi(value)
 
     if args.write:
         OUT.parent.mkdir(parents=True, exist_ok=True)
         OUT.write_text(rendered, encoding="utf-8")
         print(f"wrote {OUT.relative_to(ROOT)}")
+        WEB_METADATA.write_text(web_metadata, encoding="utf-8")
+        print(f"wrote {WEB_METADATA.relative_to(ROOT)}")
 
     if args.check:
         if not OUT.exists():
             failures.append("docs/generated/openapi.json is missing; run scripts/check-openapi.py --write")
         elif OUT.read_text(encoding="utf-8") != rendered:
             failures.append("docs/generated/openapi.json is stale; run scripts/check-openapi.py --write")
+        if not WEB_METADATA.exists():
+            failures.append("web operation metadata is missing; run scripts/check-openapi.py --write")
+        elif WEB_METADATA.read_text(encoding="utf-8") != web_metadata:
+            failures.append("web operation metadata is stale; run scripts/check-openapi.py --write")
 
     if failures:
         for failure in failures:

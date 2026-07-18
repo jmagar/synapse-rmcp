@@ -1,45 +1,23 @@
 use super::{
-    ACTION_SPECS, ActionSpec, ActionTransport, DENY_SCOPE, READ_SCOPE, SynapseAction, WRITE_SCOPE,
-    is_read_only, required_scope_for_action, required_scope_for_parsed_action, scopes_satisfy,
+    DENY_SCOPE, OPERATION_SPECS, OperationTransport, READ_SCOPE, SynapseAction, WRITE_SCOPE,
+    required_scope_for_action, required_scope_for_parsed_action, scopes_satisfy,
 };
 use serde_json::json;
 
 #[test]
-fn all_current_actions_are_non_destructive_and_read_only() {
-    // B14 adds exec/emit/beam which are classified destructive (per synapse-mcp
-    // convention). All other actions remain read-only.
-    let destructive_actions: std::collections::HashSet<&str> =
-        ["exec", "emit", "beam"].iter().copied().collect();
-    for spec in ACTION_SPECS {
-        if destructive_actions.contains(spec.name) {
-            assert!(spec.destructive, "{} should be destructive", spec.name);
-        } else {
-            assert!(!spec.destructive, "{} should not be destructive", spec.name);
-            assert!(is_read_only(spec), "{} should be read-only", spec.name);
+fn canonical_operations_are_unique_and_fail_closed() {
+    let mut names = std::collections::HashSet::new();
+    for spec in OPERATION_SPECS {
+        assert!(names.insert(spec.name), "duplicate operation {}", spec.name);
+        assert!(
+            spec.required_scope.is_some() || spec.name == "help",
+            "only help may be public: {}",
+            spec.name
+        );
+        if spec.transport == OperationTransport::Rest {
+            assert!(super::is_rest_action(spec.name));
         }
     }
-}
-
-#[test]
-fn destructive_action_is_not_read_only() {
-    let spec = ActionSpec {
-        name: "rm",
-        required_scope: Some(WRITE_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: true,
-    };
-    assert!(!is_read_only(&spec));
-}
-
-#[test]
-fn write_scoped_non_destructive_action_is_not_read_only() {
-    let spec = ActionSpec {
-        name: "label",
-        required_scope: Some(WRITE_SCOPE),
-        transport: ActionTransport::Any,
-        destructive: false,
-    };
-    assert!(!is_read_only(&spec));
 }
 
 #[test]

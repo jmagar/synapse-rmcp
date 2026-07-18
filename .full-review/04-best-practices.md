@@ -1,53 +1,52 @@
-# Phase 4: Best Practices and Standards
+# Phase 4: Best Practices & Standards
 
-Read first:
+## Framework & Language Findings
 
-- `.full-review/00-scope.md`
-- `.full-review/01-quality-architecture.md`
-- `.full-review/02-security-performance.md`
-- `.full-review/03-testing-documentation.md`
+### Critical / High
 
-## Findings
+None.
 
-- High — `.github/workflows/release.yml:29`
-  Release automation violates the repo's own packaging convention by using a stale template binary name. This is a standards/operations issue in addition to a quality issue.
-  Impact: tag-driven release readiness cannot be trusted.
-  Fix: wire workflow values to current crate metadata or add an invariant checker that fails before merge.
+### Medium
 
-- High — `.github/workflows/docker-publish.yml:28`
-  Docker image naming is not synchronized with repository identity. The workflow would publish under `example-mcp` and then scan that stale image.
-  Impact: downstream consumers and security tooling may observe a green workflow for the wrong artifact.
-  Fix: use a Synapse2 image ref and enforce this with a static workflow contract check.
+1. **Aurora's documented token source is not loaded** (`apps/web/app/globals.css`, `apps/web/components/aurora.css`, UI components). Twenty-four referenced status/surface variables are absent from the loaded stylesheet. Import one canonical token sheet, remove duplication, and add a variable-definition guard.
+2. **Release and npm CI bypass the repository's SHA-pinning standard** (`.github/workflows/ci.yml:230-235`, `.github/workflows/release.yml`). Pin every third-party action to a full reviewed SHA and enforce it with automation.
+3. **Published artifacts use unconstrained/different Rust toolchains** (`rust-toolchain.toml`, `.github/workflows/release.yml`, `config/Dockerfile`). Define one production compiler version and keep MSRV as a separate compatibility job.
+4. **Local filesystem work blocks Tokio executor threads** (`src/scout_service/fs.rs:43-76,147-151,327-335`). Move bounded local I/O to `tokio::fs` or a single `spawn_blocking` operation.
 
-- High — `apps/web/package.json:2`
-  The web package is still named `rmcp-template-web`, and active web code/docs use template env/action names.
-  Impact: package metadata, web tests, and app behavior all indicate the web app was not fully adapted as a Synapse2 surface.
-  Fix: rename the package and public config to Synapse2, and consider deriving action metadata from OpenAPI instead of duplicating it.
+### Low
 
-- Medium — `docs/` active guides
-  Active documentation frontmatter frequently retains `owner: "rmcp-template"` and `scope: "template"` even in a derived Synapse2 repo.
-  Impact: contributors cannot tell which docs are normative for Synapse2 versus inherited template reference material.
-  Fix: classify active docs as `service` or move generic template docs into a clearly labeled reference section.
+5. **Static API reference is unnecessarily a client component** (`apps/web/app/api/page.tsx`). Remove `"use client"`.
+6. **Seven Radix packages are unused** (`apps/web/package.json`). Remove them, refresh the lockfile, and add dependency hygiene checking.
+7. **Legacy Docker CLI code duplicates Bollard and blocks inside async** (`src/docker.rs`, `src/lib.rs`). Remove it or migrate it to the shared bounded async path.
+8. **Health polling permits overlapping/stale requests** (`apps/web/app/page.tsx`, `apps/web/lib/api.ts`). Use abortable completion-driven polling.
 
-- Medium — `src/mcp/rmcp_server.rs:121`
-  `validate_response_format_arg` lives in the protocol server file. `cargo xtask patterns` flags this as suspicious surface logic.
-  Impact: the helper is currently protocol glue, not business logic, but this file already handles auth, parsing errors, rendering, and tool result construction; more validation here would erode the thin-boundary rule.
-  Fix: keep this helper minimal or move response-format validation into the shared action parsing layer so MCP/REST/CLI semantics stay unified.
+## CI/CD & DevOps Findings
 
-- Medium — `apps/web/package.json:21`
-  pnpm warns that the `"pnpm"` field is no longer read, so the `next>postcss` override is ignored.
-  Impact: dependency hygiene controls are not applied as intended.
-  Fix: move overrides to a supported `pnpm-workspace.yaml` or current pnpm configuration location.
+### Critical
 
-- Low — `src/scout_service/fs.rs:52`
-  `peek` lacks a streaming/bounded-read API despite the project having runtime response caps.
-  Impact: bounded output is good, but bounded IO is a better performance and reliability standard for infrastructure file viewers.
-  Fix: use streaming reads and remote byte caps.
+None.
 
-## Standards Strengths
+### High
 
-- `mod.rs` is absent, matching the repo convention.
-- Plugin manifests omit explicit `version` fields.
-- Rust test coverage is broad and currently passing.
-- The server has explicit auth policy states rather than boolean soup.
-- Destructive operations have a service-layer confirmation abstraction shared across surfaces.
+1. **Repair automation targets `example-mcp` and can stop the wrong workload** (`scripts/repair.sh`, `Justfile`). Use canonical Synapse identifiers, validate the resolved target, and add hermetic tests.
+2. **Container scanning occurs after publication, scans the wrong tag for releases, and loses failed SARIF** (`.github/workflows/docker-publish.yml`). Scan the exact pre-push digest, upload SARIF under `if: always()`, and publish/promote only after success.
+3. **Production Compose does not reference the published image** (`docker-compose.prod.yml`, workflow/server metadata). Use `ghcr.io/jmagar/synapse2`, prefer digests, and add a contract test.
+
+### Medium
+
+4. **Runtime freshness verification uses template identifiers** (`scripts/check-runtime-current.sh`, `Justfile`, docs). Adopt Synapse systemd/container defaults and test both modes.
+5. **PRs never build/smoke the deployable container** (`.github/workflows/ci.yml`). Add Docker build, Compose config, and `/health`/`/ready` smoke before merge.
+6. **Production Compose disables entrypoint permission repair with fixed UID/GID 1000** (`docker-compose.prod.yml`, `entrypoint.sh`). Restore audited privilege drop or parameterize/preflight identity and test non-1000 hosts.
+7. **Release-readiness gate fails on a stale literal assertion** (`scripts/pre-release-check.sh`, release workflow). Validate semantic artifacts and run the gate in CI.
+8. **Auth smoke uses obsolete variables and port 3000** (`scripts/test-mcp-auth.sh`, docs). Use `SYNAPSE_MCP_TOKEN`, `SYNAPSE_MCP_URL`, port 40080, safe temp files, and a verbatim CI fixture.
+9. **Health monitoring cannot distinguish liveness from readiness** (`src/api.rs`, `src/cli/watch.rs`, Compose, docs). Keep `/health` for liveness, add bounded `/ready`, and point deployment readiness at it.
+10. **Persistent log size is capped only at startup** (`src/logging.rs`). Add size-aware rotation/retention with diagnostics.
+
+### Low
+
+11. **Standalone CLI generation remains a broken template workflow** (`scripts/generate-cli.sh`, `Justfile`). Use Synapse identifiers and a valid MCP initialize/tools-list flow with smoke coverage.
+
+## Phase Counts
+
+- Framework/Language: 0 Critical, 0 High, 4 Medium, 4 Low.
+- CI/CD/DevOps: 0 Critical, 3 High, 7 Medium, 1 Low.

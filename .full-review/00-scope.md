@@ -2,46 +2,28 @@
 
 ## Target
 
-Full repository review of `/home/jmagar/workspace/synapse2` at `main` commit `f2dcd16` (`docs: save session log`), using the current clean checkout before review artifacts were regenerated.
+The entire tracked `synapse2` repository at commit `dc75a01763334549e238061e49fdc2056fa5cec8`, including the Rust service, CLI, MCP and REST transports, authentication and authorization, Docker and SSH operations, web application, packaging and installation scripts, tests, documentation, CI/CD, deployment configuration, and plugin assets.
 
 ## Files
 
-- `.github/`
-- `apps/web/`
-- `bin/`
-- `config/`
-- `docs/`
-- `plugins/synapse2/`
-- `scripts/`
-- `src/`
-- `tests/`
-- `xtask/`
-- Root manifests and operational files (`Cargo.toml`, `Justfile`, compose files, config examples, changelog, README, lint/test configs)
+- All 388 files tracked at the review baseline.
+- Production Rust under `src/`, integration tests under `tests/`, and build tooling under `xtask/`.
+- Web UI under `apps/web/`.
+- npm packaging under `packages/synapse-rmcp/` and plugin assets under `plugins/`.
+- CI, container, Compose, release, installer, configuration, documentation, and repository policy files.
+- Prior `.full-review/` artifacts were explicitly removed before this fresh review; generated build outputs and Git internals are excluded.
 
-## Review Flags
+## Flags
 
-- Security focus: yes
-- Performance critical: yes
-- Strict mode: yes
-- Framework: Rust MCP server with rmcp, Axum, lab-auth, Tokio, Docker/SSH operations, Next.js 16 static web UI
+- Security Focus: no
+- Performance Critical: no
+- Strict Mode: no
+- Framework: Rust/Axum/rmcp with Next.js/React
 
 ## Review Phases
 
-1. Code Quality and Architecture
-2. Security and Performance
-3. Testing and Documentation
-4. Best Practices and Standards
+1. Code Quality & Architecture
+2. Security & Performance
+3. Testing & Documentation
+4. Best Practices & Standards
 5. Consolidated Report
-
-## Commands Run
-
-- `git status --short --branch` — passed; clean `main...origin/main` before creating this fresh review task/artifacts.
-- `bd prime` — passed; loaded project Beads workflow context.
-- `bd create --title="Run comprehensive full-repo review" ...` — passed; created `rmcp-template-31a`.
-- `bd update rmcp-template-31a --claim --json` — passed; review task is in progress.
-- `scripts/check-rust-module-size.sh` — passed hard gate; advisory warning for modules over the 400-line soft budget.
-- `cargo test --locked` — passed; 538 lib tests, 4 bin tests, integration tests, and doc tests passed.
-- `cd apps/web && pnpm test` — failed; `apps/web/lib/template.test.ts` reports REST/MCP action metadata drift.
-- `python3 scripts/check-openapi.py --check` — passed.
-- `python3 scripts/check-schema-docs.py --check` — passed.
-- `cargo xtask patterns` — passed hard gates; warnings for file-size cohesion, `validate_` helper in MCP server, and missing action coverage in `tests/tool_dispatch.rs`.

@@ -8,7 +8,7 @@ audience:
   - "agents"
 scope: "service"
 source_of_truth: false
-last_reviewed: "2026-06-13"
+last_reviewed: "2026-07-18"
 ---
 
 # CI
@@ -23,7 +23,7 @@ just template-check
 scripts/pre-release-check.sh
 ```
 
-`just ci` delegates to `cargo xtask ci`, which runs formatting, clippy, tests, TOML checks, pattern checks, and audit when supporting tools are installed.
+`just ci` delegates to `cargo xtask ci`, which runs formatting, clippy, tests, TOML checks, pattern checks, and audit when supporting tools are installed. The audit command ignores only `RUSTSEC-2023-0071`, the no-fix RSA timing advisory documented and time-bounded by `deny.toml`; every other vulnerability still fails the gate.
 
 ## GitHub workflows
 
@@ -35,10 +35,33 @@ Runs on push/PR to main:
 - `fmt`: `cargo fmt -- --check`
 - `clippy`: `cargo clippy -- -D warnings`
 - `test`: `cargo nextest run --profile ci`
-- `web`: `pnpm install --frozen-lockfile`, `pnpm audit`, `pnpm lint`, `pnpm build`
+- `coverage`: `cargo llvm-cov` with a 65% line-coverage floor
+- `live-integration`: disposable localhost `sshd`, SSH-pool reuse, and live MCP JSON-RPC
+- `web`: `pnpm install --frozen-lockfile`, audit, lint, typecheck, tests, and build
 - `toml`: `taplo check`
-- `deny`: `cargo deny check`
+- `deny`: `cargo deny check` plus the time-bounded yanked-dependency guard
 - `gitleaks`: secret scanning
+
+All Rust jobs use Rust 1.90, matching the crate MSRV and release/container
+builders. This prevents a moving `stable` toolchain from silently becoming the
+only tested compiler.
+
+The coverage floor is intentionally below the current measured line coverage
+so normal refactors have a small margin while large untested regressions fail
+closed. Raise it as coverage improves; do not lower it to make a PR green.
+
+The live-integration job is hermetic: it creates an ephemeral SSH key and
+localhost `sshd`, requires the normally optional `tests/ssh_pool.rs` fixture,
+starts the real HTTP server, and invokes `scout nodes` plus an SSH-backed
+`scout peek` through `/mcp`.
+
+## Yanked dependency exception
+
+`spin 0.9.8` is currently forced through
+`lab-auth -> jsonwebtoken -> rsa -> lazy_static`. `cargo deny` reports yanked
+dependencies as warnings, and `scripts/check-yanked-exceptions.py` fails CI for
+every yanked crate except that exact name/version pair. The exception expires
+on 2026-10-01, so CI will force removal or an explicit review by then.
 
 ### `.github/workflows/docker-publish.yml`
 

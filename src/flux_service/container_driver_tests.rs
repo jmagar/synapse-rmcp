@@ -113,6 +113,62 @@ async fn container_stats_empty_hosts_returns_empty_ok_shape() {
     assert!(result.get("errors").is_none());
 }
 
+#[test]
+fn all_container_stats_work_has_a_hard_per_host_ceiling() {
+    let containers = (0..(super::MAX_CONTAINER_STATS_PER_HOST + 25))
+        .map(|index| serde_json::json!({"id": format!("container-{index}")}))
+        .collect::<Vec<_>>();
+    let (ids, total) = super::bounded_stats_ids(&containers);
+    assert_eq!(total, super::MAX_CONTAINER_STATS_PER_HOST + 25);
+    assert_eq!(ids.len(), super::MAX_CONTAINER_STATS_PER_HOST);
+}
+
+#[test]
+fn per_container_stats_errors_are_separate_and_mark_response_partial() {
+    let outcome = crate::fanout::FanoutOutcome::AllOk(vec![(
+        "alpha".into(),
+        super::StatsHostBatch {
+            values: vec![serde_json::json!({"container_id": "ok"})],
+            errors: vec![serde_json::json!({
+                "host": "alpha",
+                "container_id": "failed",
+                "error": "stats unavailable"
+            })],
+            total: 2,
+            requested: 2,
+        },
+    )]);
+
+    let response = super::flatten_stats_outcome(outcome);
+    assert_eq!(response["count"], 1);
+    assert_eq!(response["partial"], true);
+    assert_eq!(response["stats"].as_array().unwrap().len(), 1);
+    assert_eq!(response["container_errors"].as_array().unwrap().len(), 1);
+    assert!(response.get("truncated").is_none());
+}
+
+#[test]
+fn host_match_resolution_is_stable_and_fails_on_ambiguity() {
+    let one = super::resolve_unique_host_match(
+        "web",
+        vec![(4, "beta".into(), serde_json::json!({"host": "beta"}))],
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(one["host"], "beta");
+
+    let error = super::resolve_unique_host_match(
+        "web",
+        vec![
+            (4, "beta".into(), serde_json::Value::Null),
+            (1, "alpha".into(), serde_json::Value::Null),
+        ],
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("alpha, beta"), "{error}");
+    assert!(error.to_string().contains("specify host"), "{error}");
+}
+
 // ── find_host_op error paths ──────────────────────────────────────────────────
 
 #[tokio::test]
@@ -182,15 +238,14 @@ async fn container_stop_decline_blocks_before_any_io() {
 }
 
 #[tokio::test]
-async fn container_recreate_with_no_hosts_fails_before_confirmation() {
+async fn container_recreate_without_host_fails_before_confirmation() {
     let flux = flux_with_hosts(Vec::new());
     let params = crate::flux_service::container_lifecycle::RecreateParams { pull: false };
     let err = flux
         .container_recreate(None, "my-container", params, &DenyConfirmer)
         .await
         .unwrap_err();
-    // Fails at host resolution, not confirmation.
-    assert!(err.to_string().contains("not found on any host"), "{err}");
+    assert!(err.to_string().contains("host is required"), "{err}");
 }
 
 // ── T-H3: transport-death eviction ────────────────────────────────────────────

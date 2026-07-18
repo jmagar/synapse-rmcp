@@ -41,7 +41,7 @@ Zero business logic in shims. If you're writing validation in `mcp/tools.rs`, mo
 ## Secure defaults
 
 - `.env` is ignored and blocked from commits by `scripts/block-env-commits.sh`.
-- Non-loopback HTTP requires auth unless explicitly behind a trusted gateway (`SYNAPSE_NOAUTH=true`).
+- Non-loopback HTTP always requires local bearer or OAuth authentication, including behind a gateway.
 - Secrets in plugin settings must be marked `sensitive: true`.
 - Plugin manifests do not carry version fields — marketplace versioning comes from git SHA/tags.
 - Never hard-code tokens in unit files or documentation.
@@ -70,6 +70,7 @@ A test that only checks `is_error: false` proves nothing about the service.
 
 Every server must expose its internal state:
 - `/health` — fast liveness, always public
+- `/ready` — bounded topology readiness, always public
 - `/status` — redacted runtime state, always public
 - `flux` and `scout` read actions — authenticated operational state for clients that can't call public HTTP directly
 - Structured tracing on every upstream call

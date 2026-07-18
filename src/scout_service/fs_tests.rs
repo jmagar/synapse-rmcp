@@ -82,14 +82,14 @@ async fn peek_remote_file_uses_bounded_head_read() {
                 args.iter().map(|arg| (*arg).to_owned()).collect(),
             ));
             match program {
-                // peek now runs `env LC_ALL=C stat ...` for the type/size probe.
-                "env" => Ok(CommandOutput {
-                    stdout: format!("regular file\t{}", PEEK_MAX_CONTENT_BYTES + 500),
-                    stderr: String::new(),
-                    exit_code: Some(0),
-                }),
-                "head" => Ok(CommandOutput {
-                    stdout: "y".repeat(PEEK_MAX_CONTENT_BYTES + 1),
+                "python3" => Ok(CommandOutput {
+                    stdout: serde_json::json!({
+                        "kind": "file",
+                        "content": "y".repeat(PEEK_MAX_CONTENT_BYTES),
+                        "truncated": true,
+                        "size": PEEK_MAX_CONTENT_BYTES + 500,
+                    })
+                    .to_string(),
                     stderr: String::new(),
                     exit_code: Some(0),
                 }),
@@ -116,15 +116,10 @@ async fn peek_remote_file_uses_bounded_head_read() {
     assert!(result["truncated"].as_bool().unwrap());
 
     let calls = exec.calls.lock().unwrap();
-    assert_eq!(calls[0].0, "env");
-    assert_eq!(calls[1].0, "head");
-    assert_eq!(calls[1].1[0], "-c");
-    assert_eq!(calls[1].1[1], (PEEK_MAX_CONTENT_BYTES + 1).to_string());
-    assert_eq!(calls[1].1[2], "/tmp/large.txt");
-    assert!(
-        calls.iter().all(|(program, _)| program != "cat"),
-        "peek must not use unbounded cat"
-    );
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "python3");
+    assert!(calls[0].1[1].contains("os.O_NOFOLLOW"));
+    assert_eq!(calls[0].1[2], "peek");
 }
 
 // ─── compute_diff tests ───────────────────────────────────────────────────────
@@ -252,6 +247,83 @@ fn find_rejects_over_length_pattern() {
     );
 }
 
+#[tokio::test]
+async fn remote_find_uses_fixed_bounded_walker_and_argv_limit() {
+    #[derive(Default)]
+    struct RecordingExec {
+        calls: RecordedSshCalls,
+    }
+    #[async_trait]
+    impl SshExecutor for RecordingExec {
+        async fn exec(
+            &self,
+            _: &HostConfig,
+            program: &str,
+            args: &[&str],
+        ) -> anyhow::Result<CommandOutput> {
+            self.calls.lock().unwrap().push((
+                program.to_owned(),
+                args.iter().map(|arg| (*arg).to_owned()).collect(),
+            ));
+            match program {
+                "realpath" => Ok(CommandOutput {
+                    stdout: "/tmp/root\n".into(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                }),
+                "python3" => Ok(CommandOutput {
+                    stdout: "/tmp/root/a.log\n/tmp/root/b.log\n".into(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                }),
+                other => anyhow::bail!("unexpected program: {other}"),
+            }
+        }
+    }
+
+    let exec = RecordingExec::default();
+    let mut host = HostConfig::local();
+    host.name = "remote".into();
+    host.host = "remote.example".into();
+    host.protocol = crate::synapse::HostProtocol::Ssh;
+    host.scout_read_roots = vec!["/tmp".into()];
+    let result = find(&host, &exec, "/tmp/root", "*.log", Some(4), Some(2))
+        .await
+        .unwrap();
+    assert_eq!(result["count"], 2);
+    let calls = exec.calls.lock().unwrap();
+    let walker = calls.iter().find(|call| call.0 == "python3").unwrap();
+    assert_eq!(walker.1[0], "-c");
+    assert_eq!(walker.1[2], "find");
+    assert_eq!(&walker.1[walker.1.len() - 2], "2");
+    assert_eq!(walker.1.last().unwrap(), "10000");
+    assert!(walker.1[1].contains("os.scandir"));
+}
+
+#[tokio::test]
+async fn local_tree_and_find_enforce_hard_result_caps() {
+    let dir = tempfile::tempdir().unwrap();
+    for index in 0..(WALK_MAX_RESULTS + 25) {
+        std::fs::write(dir.path().join(format!("{index}.log")), "x").unwrap();
+    }
+    let mut host = HostConfig::local();
+    host.scout_read_roots = vec![dir.path().to_string_lossy().into_owned()];
+    let root = dir.path().to_str().unwrap();
+
+    let tree = peek(&host, &NoopExec, root, true, 1).await.unwrap();
+    assert_eq!(
+        tree["tree"].as_str().unwrap().lines().count(),
+        WALK_MAX_RESULTS
+    );
+    assert_eq!(tree["truncated"], true);
+
+    let found = find(&host, &NoopExec, root, "*.log", Some(1), Some(u32::MAX))
+        .await
+        .unwrap();
+    assert_eq!(found["count"], WALK_MAX_RESULTS);
+    assert_eq!(found["truncated"], true);
+}
+
 // ─── remote symlink guard (S-M1) ─────────────────────────────────────────────
 
 #[tokio::test]
@@ -268,11 +340,10 @@ async fn peek_remote_rejects_symlink_path() {
             _args: &[&str],
         ) -> anyhow::Result<CommandOutput> {
             match program {
-                // peek runs the symlink probe as `env LC_ALL=C stat ...`.
-                "env" => Ok(CommandOutput {
-                    stdout: "symbolic link\t0".into(),
-                    stderr: String::new(),
-                    exit_code: Some(0),
+                "python3" => Ok(CommandOutput {
+                    stdout: String::new(),
+                    stderr: "OSError: Too many levels of symbolic links".into(),
+                    exit_code: Some(1),
                 }),
                 other => anyhow::bail!("unexpected program: {other}"),
             }
@@ -289,7 +360,7 @@ async fn peek_remote_rejects_symlink_path() {
     assert!(result.is_err(), "remote symlink must be rejected");
     let msg = result.unwrap_err().to_string();
     assert!(
-        msg.contains("symbolic link") || msg.contains("symlink"),
+        msg.contains("symbolic link") || msg.contains("symlink") || msg.contains("Too many levels"),
         "error must mention symlink: {msg}"
     );
 }
@@ -308,11 +379,10 @@ async fn delta_remote_rejects_symlink_path() {
             _args: &[&str],
         ) -> anyhow::Result<CommandOutput> {
             match program {
-                // delta's read_remote_file runs `env LC_ALL=C stat ...`.
-                "env" => Ok(CommandOutput {
-                    stdout: "symbolic link".into(),
-                    stderr: String::new(),
-                    exit_code: Some(0),
+                "python3" => Ok(CommandOutput {
+                    stdout: String::new(),
+                    stderr: "OSError: Too many levels of symbolic links".into(),
+                    exit_code: Some(1),
                 }),
                 other => anyhow::bail!("unexpected program: {other}"),
             }
@@ -337,7 +407,7 @@ async fn delta_remote_rejects_symlink_path() {
     assert!(result.is_err(), "delta must reject remote symlink source");
     let msg = result.unwrap_err().to_string();
     assert!(
-        msg.contains("symbolic link") || msg.contains("symlink"),
+        msg.contains("symbolic link") || msg.contains("symlink") || msg.contains("Too many levels"),
         "error must mention symlink: {msg}"
     );
 }
@@ -358,13 +428,12 @@ async fn peek_remote_stat_failure_is_not_silently_bypassed() {
             _args: &[&str],
         ) -> anyhow::Result<CommandOutput> {
             match program {
-                "env" => Ok(CommandOutput {
+                "python3" => Ok(CommandOutput {
                     stdout: String::new(),
-                    stderr: "stat: cannot stat '/tmp/x': Permission denied".into(),
+                    stderr: "Permission denied".into(),
                     exit_code: Some(1),
                 }),
-                // Reaching a read program means the guard fell through — fail loudly.
-                other => panic!("peek must not run {other} after stat failed"),
+                other => panic!("peek must not run unexpected {other}"),
             }
         }
     }
@@ -392,12 +461,12 @@ async fn delta_remote_stat_failure_is_not_silently_bypassed() {
             _args: &[&str],
         ) -> anyhow::Result<CommandOutput> {
             match program {
-                "env" => Ok(CommandOutput {
+                "python3" => Ok(CommandOutput {
                     stdout: String::new(),
-                    stderr: "stat: cannot stat '/tmp/link': Permission denied".into(),
+                    stderr: "Permission denied".into(),
                     exit_code: Some(1),
                 }),
-                other => panic!("delta must not run {other} after stat failed"),
+                other => panic!("delta must not run unexpected {other}"),
             }
         }
     }

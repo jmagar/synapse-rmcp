@@ -15,6 +15,12 @@ on:
     branches: [main]
     tags: ["v*"]
 
+# Prevent an older main build from finishing after a newer one and moving the
+# mutable `latest` tag backwards. Tag builds use their own ref-specific group.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   IMAGE_NAME: ghcr.io/jmagar/synapse2
 
@@ -26,6 +32,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      security-events: write
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -42,7 +49,7 @@ jobs:
 
       # Determine the Docker tags to push:
       #   main branch  → :latest
-      #   v1.2.3 tag   → :1.2.3 AND :latest
+      #   v1.2.3 tag   → :1.2.3 and :1.2 (latest is promoted by main only)
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
@@ -52,41 +59,30 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
 
       # Single-platform amd64 build and push.
       # arm64 was dropped: emulated QEMU arm64 Rust builds exceeded the job
       # timeout. Re-add via a native arm64 runner matrix if arm64 is needed.
-      - name: Build and push
+      - name: Build exact image for scanning
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           # TEMPLATE: Dockerfile lives at config/Dockerfile.
           file: config/Dockerfile
           platforms: linux/amd64
-          push: true
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── Trivy vulnerability scan ─────────────────────────────────────────────────
-  trivy:
-    name: Trivy Vulnerability Scan
-    needs: docker
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      security-events: write
-
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
       - name: Run Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ghcr.io/jmagar/synapse2:latest
+          image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
@@ -94,6 +90,16 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload Trivy results to GitHub Security
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: trivy-results.sarif
+
+      - name: Publish verified image tags
+        if: success()
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] && docker push "$tag"
+          done <<< "$IMAGE_TAGS"

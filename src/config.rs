@@ -48,9 +48,9 @@ pub struct McpConfig {
     pub server_name: String,
     /// Disable auth entirely — only safe when bound to loopback (SYNAPSE_MCP_NO_AUTH).
     pub no_auth: bool,
-    /// Allow unauthenticated access on non-loopback when behind a trusted reverse proxy
-    /// that enforces its own auth (SYNAPSE_NOAUTH). Loaded here so it participates in
-    /// typed config rather than being a raw env read at call sites.
+    /// Trust an upstream gateway to enforce authentication and authorization
+    /// (SYNAPSE_NOAUTH). This is only safe on a network path reachable solely
+    /// through that gateway.
     pub trusted_gateway: bool,
     /// Skip destructive-operation confirmation prompts (SYNAPSE_MCP_ALLOW_DESTRUCTIVE).
     /// Operational override only — the shims substitute a no-op `Confirmer` when set.
@@ -67,8 +67,7 @@ pub struct McpConfig {
     pub allowed_origins: Vec<String>,
     /// Maximum number of concurrent in-flight requests on `/mcp` and
     /// `/v1/synapse2` (SYNAPSE_MCP_MAX_CONCURRENCY). Additional requests are
-    /// queued until a permit is available. Default: 50. Set to 0 to disable
-    /// the limit.
+    /// rejected with HTTP 429. Default: 50. Set to 0 to disable the limit.
     ///
     /// This is a global concurrency cap across all connected clients — not a
     /// per-client rate limit. It protects the SSH pool, Docker socket, and CPU

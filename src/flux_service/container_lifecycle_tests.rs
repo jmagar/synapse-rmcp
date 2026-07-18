@@ -257,6 +257,25 @@ async fn recreate_sequence_inspect_stop_remove_create_start() {
 }
 
 #[tokio::test]
+async fn recreate_aborts_immediately_when_stop_fails() {
+    let mut client = MockDockerClient::new();
+    client.fail_action = Some(ContainerAction::Stop);
+    let error = recreate_on_host(
+        &client,
+        "h",
+        "my-container",
+        &RecreateParams { pull: false },
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("scripted Stop failure"));
+    assert_eq!(
+        client.recorded_actions(),
+        [("my-container".to_owned(), ContainerAction::Stop)]
+    );
+}
+
+#[tokio::test]
 async fn recreate_with_pull_calls_pull_before_stop() {
     use bollard::models::{ContainerConfig, ContainerInspectResponse, CreateImageInfo};
 

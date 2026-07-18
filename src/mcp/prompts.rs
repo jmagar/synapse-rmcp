@@ -26,9 +26,10 @@ pub(super) fn get_prompt(request: GetPromptRequestParams) -> anyhow::Result<GetP
     match request.name.as_str() {
         "quick_start" => Ok(GetPromptResult::new(vec![PromptMessage::new_text(
             PromptMessageRole::User,
-            "Use the scout tool with action=nodes to list the configured hosts, \
-             then use the flux tool with action=host to check the Docker host status \
-             on the default host. Report back both results.",
+            "Use the scout tool with {\"action\":\"nodes\"} to list the configured hosts. \
+             Choose one returned host, then use the flux tool with \
+             {\"action\":\"host\",\"subaction\":\"status\",\"host\":\"<returned-host>\"} \
+             to check that host. Report back both results.",
         )])
         .with_description(
             "Verify the MCP server is working by listing hosts and checking Docker status",

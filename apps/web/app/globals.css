@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+/* Canonical Aurora token sheet. Component and page styles must consume these
+   variables instead of defining local token subsets. */
+@import "../components/aurora.css";
 
 @custom-variant dark (&:is(.dark *));
 

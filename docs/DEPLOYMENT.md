@@ -58,6 +58,21 @@ Every server binary exposes exactly two server modes and a CLI:
    just test-mcporter
    ```
 
+Before replacing a bare-metal binary, retain the currently installed version.
+Both installer scripts now stage the new executable on the destination
+filesystem, atomically rename it into place, and preserve the old executable as
+`~/.local/bin/synapse.previous`. Roll back and restart with:
+
+```bash
+mv -f ~/.local/bin/synapse.previous ~/.local/bin/synapse
+systemctl --user restart synapse2.service
+synapse --version
+```
+
+For Compose, pin `SYNAPSE2_VERSION` to a release or `sha-<full-commit>` tag and
+record the previous tag before `pull`/`up`; `docs/DOCKER.md` contains the exact
+rollback commands.
+
 ## Binary environment awareness
 
 The binary normalizes paths, bind hosts, and ports based on its deployment context:
@@ -75,9 +90,9 @@ fn resolve_data_dir(config_path: Option<&str>) -> PathBuf {
     dirs::home_dir().unwrap_or_default().join(".synapse2")
 }
 
-fn resolve_bind_host(configured: &str) -> &str {
-    if is_containerized() { "0.0.0.0" } else { configured }
-}
+// Bind behavior is explicit in every environment. The binary default remains
+// 127.0.0.1; Compose sets SYNAPSE_MCP_HOST=0.0.0.0 inside the container when a
+// published container port is required.
 ```
 
 ## Appdata convention
@@ -97,7 +112,9 @@ Non-loopback HTTP deployments must use bearer auth or OAuth. The server refuses 
 - Loopback bind or `SYNAPSE_MCP_NO_AUTH=true` → `LoopbackDev` (no auth)
 - Non-loopback + bearer token → mounted bearer auth
 - Non-loopback + `auth_mode=oauth` → mounted OAuth auth
-- Non-loopback + `SYNAPSE_NOAUTH=true` → `TrustedGatewayUnscoped` (trusted gateway, explicit opt-out)
+- Non-loopback + `SYNAPSE_NOAUTH=true` → `TrustedGatewayUnscoped`; the upstream
+  gateway must enforce both authentication and authorization, and network policy
+  must prevent clients from reaching Synapse directly
 - Non-loopback + no credentials + no gateway acknowledgment → startup error
 
 ## Claude Code stdio config
@@ -119,6 +136,7 @@ The binary must be in `$PATH`. The plugin's `plugin-setup.sh` symlinks it to `~/
 ## Public endpoints
 
 - `/health` is public and fast.
+- `/ready` is public and checks topology loading with a bounded timeout.
 - `/status` is public but redacted.
 - `/mcp` is the Streamable HTTP MCP endpoint.
 - `/v1/synapse2` is the REST action endpoint.

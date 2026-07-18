@@ -33,7 +33,6 @@
 mod tests;
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,10 +43,29 @@ use crate::elicitation_gate::Confirmer;
 use crate::fanout::{FanoutOutcome, fanout};
 use crate::flux_service::host::is_local_host;
 use crate::ssh::SshExecutor;
-use crate::synapse::{HostConfig, validate_command, validate_safe_path};
+use crate::synapse::{HostConfig, validate_command, validate_command_args, validate_safe_path};
+use crate::synapse::{command_filesystem_operand_indices, validate_scout_read_path};
 
-/// Default timeout for `emit` per-host execution.
-const EMIT_DEFAULT_TIMEOUT_SECS: u64 = 30;
+const BOUND_EXEC_SCRIPT: &str = r#"import json, os, sys
+command, argv, specs, cwd = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3]), json.loads(sys.argv[4])
+fds = []
+def bind(root, rel):
+    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    for part in [p for p in root.split('/') if p] + [p for p in rel.split('/') if p]:
+        nxt = os.open(part, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+        os.close(fd); fd = nxt
+    os.set_inheritable(fd, True); fds.append(fd); return fd
+for spec in specs:
+    fd = bind(spec['root'], spec['relative'])
+    argv[spec['index']] = '/proc/self/fd/' + str(fd)
+if cwd: os.fchdir(bind(cwd['root'], cwd['relative']))
+os.execvp(command, [command] + argv)
+"#;
+
+/// Default timeout for Scout command execution.
+pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
+/// Upper bound for caller-controlled command timeouts.
+pub const MAX_TIMEOUT_SECS: u64 = 300;
 
 // ─── exec ────────────────────────────────────────────────────────────────────
 
@@ -66,13 +84,27 @@ pub async fn exec(
     args: &[String],
     path: Option<&str>,
 ) -> Result<Value> {
+    exec_with_timeout(host, executor, confirmer, command, args, path, None).await
+}
+
+/// Run a single-host command with the caller-requested bounded deadline.
+pub async fn exec_with_timeout(
+    host: &HostConfig,
+    executor: &dyn SshExecutor,
+    confirmer: &dyn Confirmer,
+    command: &str,
+    args: &[String],
+    path: Option<&str>,
+    timeout_secs: Option<u64>,
+) -> Result<Value> {
     // Syntactic + symlink guard for path (optional).
     if let Some(p) = path {
-        validate_safe_path(p)?;
+        validate_scout_read_path(host, p)?;
     }
 
     // Command allowlist check (hard error before any IO).
-    validate_command(command, &host.exec_allowlist)?;
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    validate_command_args(host, command, &arg_refs)?;
 
     // Destructive gate (B5). Caller supplies confirmer; we just call .require().
     let details = format!(
@@ -82,13 +114,36 @@ pub async fn exec(
     );
     confirmer.require("scout:exec", &details).await?;
 
-    let arg_strs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let arg_strs = arg_refs;
 
-    if is_local_host(host) {
-        exec_local(host, command, &arg_strs, path).await
-    } else {
-        exec_remote(host, executor, command, &arg_strs).await
+    let timeout_secs = timeout_secs
+        .unwrap_or(DEFAULT_TIMEOUT_SECS)
+        .clamp(1, MAX_TIMEOUT_SECS);
+    let operation = async {
+        if is_local_host(host) {
+            exec_local(host, command, &arg_strs, path).await
+        } else {
+            if path.is_some() {
+                bail!("path is only supported for local scout exec targets");
+            }
+            exec_remote(host, executor, command, &arg_strs).await
+        }
+    };
+    crate::runtime_budget::with_deadline(
+        &format!("scout exec `{command}` on {}", host.name),
+        Duration::from_secs(timeout_secs),
+        operation,
+    )
+    .await
+}
+
+fn bound_exec_args(host: &HostConfig, command: &str, args: &[&str]) -> Result<(String, String)> {
+    let mut specs = Vec::new();
+    for index in command_filesystem_operand_indices(command, args)? {
+        let (root, relative) = crate::secure_path::root_and_relative(host, args[index])?;
+        specs.push(json!({"index": index, "root": root, "relative": relative}));
     }
+    Ok((serde_json::to_string(args)?, serde_json::to_string(&specs)?))
 }
 
 async fn exec_local(
@@ -97,8 +152,19 @@ async fn exec_local(
     args: &[&str],
     path: Option<&str>,
 ) -> Result<Value> {
-    let output =
-        crate::runtime_budget::run_local_command(command, args, path.map(Path::new)).await?;
+    let (argv, specs) = bound_exec_args(host, command, args)?;
+    let cwd = if let Some(path) = path {
+        let (root, relative) = crate::secure_path::root_and_relative(host, path)?;
+        serde_json::to_string(&json!({"root": root, "relative": relative}))?
+    } else {
+        "null".into()
+    };
+    let output = crate::runtime_budget::run_local_command(
+        "python3",
+        &["-c", BOUND_EXEC_SCRIPT, command, &argv, &specs, &cwd],
+        None,
+    )
+    .await?;
     Ok(json!({
         "host": host.name,
         "command": command,
@@ -116,7 +182,14 @@ async fn exec_remote(
     command: &str,
     args: &[&str],
 ) -> Result<Value> {
-    let out = executor.exec(host, command, args).await?;
+    let (argv, specs) = bound_exec_args(host, command, args)?;
+    let out = executor
+        .exec(
+            host,
+            "python3",
+            &["-c", BOUND_EXEC_SCRIPT, command, &argv, &specs, "null"],
+        )
+        .await?;
     Ok(json!({
         "host": host.name,
         "command": command,
@@ -172,7 +245,11 @@ pub async fn emit(
     let details = format!("command={command} targets={}", target_labels.join(", "));
     confirmer.require("scout:emit", &details).await?;
 
-    let timeout = Duration::from_secs(timeout_secs.unwrap_or(EMIT_DEFAULT_TIMEOUT_SECS));
+    let timeout = Duration::from_secs(
+        timeout_secs
+            .unwrap_or(DEFAULT_TIMEOUT_SECS)
+            .clamp(1, MAX_TIMEOUT_SECS),
+    );
 
     // Build the host list from targets (fanout works over HostConfig slices).
     let host_configs: Vec<HostConfig> = targets.iter().map(|t| t.host.clone()).collect();
@@ -187,9 +264,8 @@ pub async fn emit(
         let target_paths = Arc::clone(&target_paths);
         async move {
             // Per-host command validation (host-specific allowlist may differ).
-            validate_command(&cmd, &host.exec_allowlist).map_err(|e| e.to_string())?;
-
             let arg_refs: Vec<&str> = arg_strs.iter().map(|s| s.as_str()).collect();
+            validate_command_args(&host, &cmd, &arg_refs).map_err(|e| e.to_string())?;
             let path = target_paths
                 .get(&host.name)
                 .and_then(|path| path.as_deref());
@@ -264,19 +340,12 @@ fn target_paths_by_host(targets: &[EmitTarget]) -> Result<HashMap<String, Option
 }
 
 async fn exec_local_fanout(
-    _host: &HostConfig,
+    host: &HostConfig,
     command: &str,
     args: &[&str],
     path: Option<&str>,
 ) -> Result<Value> {
-    let output =
-        crate::runtime_budget::run_local_command(command, args, path.map(Path::new)).await?;
-    Ok(json!({
-        "path": path,
-        "exit_code": output.exit_code,
-        "stdout": output.stdout,
-        "stderr": output.stderr,
-    }))
+    exec_local(host, command, args, path).await
 }
 
 async fn exec_remote_fanout(
@@ -285,13 +354,7 @@ async fn exec_remote_fanout(
     command: &str,
     args: &[&str],
 ) -> Result<Value> {
-    let out = executor.exec(host, command, args).await?;
-    Ok(json!({
-        "path": null,
-        "exit_code": out.exit_code,
-        "stdout": out.stdout,
-        "stderr": out.stderr,
-    }))
+    exec_remote(host, executor, command, args).await
 }
 
 // ─── beam ────────────────────────────────────────────────────────────────────

@@ -1,3 +1,5 @@
+import operationMetadata from "./generated-operation-metadata.json";
+
 export const WEB_APP_CONFIG = {
   serviceName: "synapse",
   displayName: "Synapse2",
@@ -7,17 +9,28 @@ export const WEB_APP_CONFIG = {
   restEndpoint: "/v1/synapse2",
   healthEndpoint: "/health",
   statusEndpoint: "/status",
+  activityEndpoint: "/activity",
+  capabilitiesEndpoint: "/capabilities",
   mcpEndpoint: "/mcp",
 } as const;
 
-export type ActionParam = {
+type ActionParamBase = {
   name: string;
   label: string;
-  type: "text" | "number" | "checkbox" | "string-list";
   placeholder?: string;
   required: boolean;
   description: string;
 };
+
+export type ActionParam =
+  | (ActionParamBase & {
+      type: "select";
+      options: readonly [string, ...string[]];
+    })
+  | (ActionParamBase & {
+      type: "text" | "number" | "checkbox" | "string-list";
+      options?: never;
+    });
 
 export type ActionScope = "synapse:read" | "synapse:write" | "public";
 
@@ -26,6 +39,7 @@ export type ActionSpec = {
   label: string;
   description: string;
   scope: ActionScope;
+  destructive?: boolean;
   transport: "rest" | "mcp-only";
   params: readonly ActionParam[];
   example: {
@@ -34,6 +48,8 @@ export type ActionSpec = {
   };
   response: Record<string, unknown>;
 };
+
+type ActionPresentation = Omit<ActionSpec, "scope" | "destructive" | "transport">;
 
 const HOST_PARAM = {
   name: "host",
@@ -44,13 +60,11 @@ const HOST_PARAM = {
   description: "Target host. Leave empty to fan out when the action supports it.",
 } as const satisfies ActionParam;
 
-export const ACTIONS: readonly ActionSpec[] = [
+const ACTION_PRESENTATIONS = [
   {
     id: "help",
     label: "help",
     description: "Show Synapse2 REST actions and usage documentation.",
-    scope: "public",
-    transport: "rest",
     params: [],
     example: { action: "help", params: {} },
     response: {
@@ -70,7 +84,6 @@ export const ACTIONS: readonly ActionSpec[] = [
         "scout.peek",
         "scout.exec",
       ],
-      mcp_only_actions: [],
       usage:
         "Use MCP tools `flux` and `scout`, or CLI commands `synapse flux ...` and `synapse scout ...`.",
     },
@@ -79,8 +92,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "flux.docker.info",
     label: "flux.docker.info",
     description: "Return Docker daemon information for one host or all configured hosts.",
-    scope: "synapse:read",
-    transport: "rest",
     params: [HOST_PARAM],
     example: { action: "flux.docker.info", params: { host: "myhost" } },
     response: { host: "myhost", server_version: "28.x", containers: 42 },
@@ -89,8 +100,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "flux.docker.df",
     label: "flux.docker.df",
     description: "Show Docker disk usage for images, containers, volumes, and build cache.",
-    scope: "synapse:read",
-    transport: "rest",
     params: [HOST_PARAM],
     example: { action: "flux.docker.df", params: {} },
     response: { hosts: [{ host: "myhost", layers_size: 123456789 }] },
@@ -99,8 +108,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "flux.docker.images",
     label: "flux.docker.images",
     description: "List Docker images, optionally filtering to dangling images.",
-    scope: "synapse:read",
-    transport: "rest",
     params: [
       HOST_PARAM,
       {
@@ -118,8 +125,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "flux.docker.networks",
     label: "flux.docker.networks",
     description: "List Docker networks.",
-    scope: "synapse:read",
-    transport: "rest",
     params: [HOST_PARAM],
     example: { action: "flux.docker.networks", params: {} },
     response: { networks: [{ name: "bridge", driver: "bridge" }] },
@@ -128,8 +133,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "flux.docker.volumes",
     label: "flux.docker.volumes",
     description: "List Docker volumes.",
-    scope: "synapse:read",
-    transport: "rest",
     params: [HOST_PARAM],
     example: { action: "flux.docker.volumes", params: {} },
     response: { volumes: [{ name: "app-data", driver: "local" }] },
@@ -138,8 +141,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "flux.docker.pull",
     label: "flux.docker.pull",
     description: "Pull an image on a target host.",
-    scope: "synapse:write",
-    transport: "rest",
     params: [
       { ...HOST_PARAM, required: true, description: "Host that should pull the image." },
       {
@@ -158,8 +159,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "flux.docker.build",
     label: "flux.docker.build",
     description: "Build a Docker image from a context on a target host.",
-    scope: "synapse:write",
-    transport: "rest",
     params: [
       { ...HOST_PARAM, required: true, description: "Host that should run the build." },
       {
@@ -204,8 +203,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "flux.docker.rmi",
     label: "flux.docker.rmi",
     description: "Remove a Docker image from a target host.",
-    scope: "synapse:write",
-    transport: "rest",
     params: [
       { ...HOST_PARAM, required: true, description: "Host containing the image." },
       {
@@ -220,39 +217,49 @@ export const ACTIONS: readonly ActionSpec[] = [
         name: "force",
         label: "Force",
         type: "checkbox",
-        required: false,
-        description: "Force image removal.",
+        required: true,
+        description: "Required safety acknowledgement for image removal.",
       },
     ],
-    example: { action: "flux.docker.rmi", params: { host: "myhost", image: "nginx:latest" } },
+    example: {
+      action: "flux.docker.rmi",
+      params: { host: "myhost", image: "nginx:latest", force: true },
+    },
     response: { host: "myhost", image: "nginx:latest", removed: true },
   },
   {
     id: "flux.docker.prune",
     label: "flux.docker.prune",
     description: "Prune unused Docker resources on a target host.",
-    scope: "synapse:write",
-    transport: "rest",
     params: [
       { ...HOST_PARAM, required: true, description: "Host to prune." },
       {
         name: "prune_target",
         label: "Target",
-        type: "text",
-        placeholder: "system",
-        required: false,
+        type: "select",
+        options: ["containers", "images", "volumes", "networks", "buildcache", "all"],
+        placeholder: "images",
+        required: true,
         description: "Resource class to prune, such as system, images, containers, or volumes.",
       },
+      {
+        name: "force",
+        label: "Force",
+        type: "checkbox",
+        required: true,
+        description: "Required safety acknowledgement for pruning Docker resources.",
+      },
     ],
-    example: { action: "flux.docker.prune", params: { host: "myhost" } },
+    example: {
+      action: "flux.docker.prune",
+      params: { host: "myhost", prune_target: "images", force: true },
+    },
     response: { host: "myhost", reclaimed_bytes: 123456789 },
   },
   {
     id: "flux.container.list",
     label: "flux.container.list",
     description: "List containers with optional state, name, image, and label filters.",
-    scope: "synapse:read",
-    transport: "rest",
     params: [
       HOST_PARAM,
       {
@@ -292,8 +299,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "scout.nodes",
     label: "scout.nodes",
     description: "List configured Scout nodes.",
-    scope: "synapse:read",
-    transport: "rest",
     params: [],
     example: { action: "scout.nodes", params: {} },
     response: { nodes: [{ host: "myhost", kind: "ssh" }] },
@@ -302,8 +307,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "scout.peek",
     label: "scout.peek",
     description: "Read a file or directory listing from a target host.",
-    scope: "synapse:read",
-    transport: "rest",
     params: [
       { ...HOST_PARAM, required: true, description: "Host to inspect." },
       {
@@ -337,8 +340,6 @@ export const ACTIONS: readonly ActionSpec[] = [
     id: "scout.exec",
     label: "scout.exec",
     description: "Run an allowlisted command on a target host.",
-    scope: "synapse:write",
-    transport: "rest",
     params: [
       { ...HOST_PARAM, required: true, description: "Host to execute on." },
       {
@@ -380,13 +381,40 @@ export const ACTIONS: readonly ActionSpec[] = [
     },
     response: { host: "myhost", command: "hostname", stdout: "myhost\n", exit_code: 0 },
   },
-] as const;
+] as const satisfies readonly ActionPresentation[];
 
-export type RestAction = ActionSpec & { transport: "rest" };
-export type RestActionId = string;
+type RestOperationMetadata = {
+  name: string;
+  scope: ActionScope;
+  destructive: boolean;
+};
 
-export const REST_ACTIONS = ACTIONS.filter((action) => action.transport === "rest") as RestAction[];
-export const DEFAULT_REST_ACTION = REST_ACTIONS[0];
+const REST_OPERATION_METADATA = new Map(
+  (operationMetadata.rest_operations as RestOperationMetadata[]).map((operation) => [
+    operation.name,
+    operation,
+  ]),
+);
+
+export type RestActionId = (typeof ACTION_PRESENTATIONS)[number]["id"];
+export type RestAction = Omit<ActionSpec, "id" | "transport"> & {
+  id: RestActionId;
+  transport: "rest";
+};
+
+export const ACTIONS: readonly RestAction[] = ACTION_PRESENTATIONS.map((presentation) => {
+  const metadata = REST_OPERATION_METADATA.get(presentation.id);
+  if (!metadata) throw new Error(`Missing canonical REST metadata for ${presentation.id}`);
+  return {
+    ...presentation,
+    scope: metadata.scope,
+    destructive: metadata.destructive,
+    transport: "rest",
+  };
+});
+
+export const REST_ACTIONS = ACTIONS;
+export const DEFAULT_REST_ACTION: RestAction = REST_ACTIONS[0];
 
 export function normalizeApiBaseUrl(apiBaseUrl: string): string {
   return apiBaseUrl.replace(/\/+$/, "");

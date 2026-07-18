@@ -5,8 +5,8 @@
 //! # Usage
 //!
 //! ```text
-//! synapse2 flux container list --host local
-//! synapse2 scout nodes
+//! synapse flux container list --host local
+//! synapse scout nodes
 //! synapse2 doctor [--json]
 //! ```
 
@@ -324,6 +324,55 @@ pub(super) fn parse_optional_named_value(args: &[String], flag: &str) -> Result<
         index += 2;
     }
     Ok(value)
+}
+
+/// Validate a command's complete option surface before individual values are
+/// extracted. This closes the gap where repeated per-flag scans silently
+/// ignored an otherwise well-formed unknown option.
+pub(super) fn validate_named_args(
+    args: &[String],
+    value_flags: &[&str],
+    bool_flags: &[&str],
+) -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    let mut index = 0;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        if !flag.starts_with("--") {
+            return Err(anyhow!("unexpected argument `{flag}`"));
+        }
+        if !seen.insert(flag) {
+            return Err(anyhow!("duplicate {flag}"));
+        }
+        if bool_flags.contains(&flag) {
+            index += 1;
+            continue;
+        }
+        if !value_flags.contains(&flag) {
+            return Err(anyhow!("unknown option `{flag}`"));
+        }
+        let Some(value) = args.get(index + 1) else {
+            return Err(anyhow!("missing value after {flag}"));
+        };
+        if value.starts_with("--") {
+            return Err(anyhow!("missing value after {flag}"));
+        }
+        index += 2;
+    }
+    Ok(())
+}
+
+pub(super) fn parse_optional_number<T>(args: &[String], flag: &str) -> Result<Option<T>>
+where
+    T: std::str::FromStr,
+{
+    parse_optional_named_value(args, flag)?
+        .map(|value| {
+            value
+                .parse::<T>()
+                .map_err(|_| anyhow!("{flag} must be a valid positive integer"))
+        })
+        .transpose()
 }
 
 fn parse_bool_flag(args: &[String], command: &str, flag: &str) -> Result<bool> {

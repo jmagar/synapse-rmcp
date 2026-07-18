@@ -1,9 +1,9 @@
 use super::{ALL_URIS, all_resources};
 
 #[test]
-fn list_resources_returns_all_six_uris() {
+fn list_resources_returns_all_eight_uris() {
     let resources = all_resources();
-    assert_eq!(resources.len(), 6, "should expose exactly 6 resource URIs");
+    assert_eq!(resources.len(), 8, "should expose exactly 8 resource URIs");
 
     let uris: Vec<String> = resources.iter().map(|r| r.uri.clone()).collect();
     for expected_uri in ALL_URIS {
@@ -96,10 +96,38 @@ async fn read_schema_resource_returns_json() {
     };
     let parsed: serde_json::Value =
         serde_json::from_str(&text).expect("schema resource should be valid JSON");
+    assert_eq!(parsed["name"], "flux");
     assert!(
-        parsed.is_array(),
-        "schema resource should be a JSON array of tool definitions"
+        parsed.is_object(),
+        "schema resource should be one tool definition"
     );
+}
+
+#[tokio::test]
+async fn status_and_activity_resources_share_runtime_state() {
+    let state = crate::testing::loopback_state();
+    state.activity.record("rest", "scout.nodes", true, None);
+    for (uri, expected) in [
+        (super::URI_STATUS, "status"),
+        (super::URI_ACTIVITY, "events"),
+    ] {
+        let contents = super::read_resource(uri, &state).await.unwrap();
+        let rmcp::model::ResourceContents::TextResourceContents { text, .. } = contents else {
+            panic!("expected text resource");
+        };
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(parsed.get(expected).is_some());
+    }
+}
+
+#[test]
+fn only_live_resources_require_read_scope() {
+    assert!(super::requires_read_scope(super::URI_HOSTS));
+    assert!(super::requires_read_scope(super::URI_COMPOSE_PROJECTS));
+    assert!(super::requires_read_scope(super::URI_STATUS));
+    assert!(super::requires_read_scope(super::URI_ACTIVITY));
+    assert!(!super::requires_read_scope(super::URI_SCHEMA_FLUX));
+    assert!(!super::requires_read_scope(super::URI_HELP_FLUX));
 }
 
 #[tokio::test]

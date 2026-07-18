@@ -26,7 +26,7 @@
 #   docker inspect --format '{{index .RepoDigests 0}}' node:26-bookworm-slim
 # Then replace the tag below with:
 #   FROM node@sha256:<digest> AS web  # node:26-bookworm-slim
-FROM node:26.4.0-bookworm-slim AS web
+FROM node:26.5.0-bookworm-slim AS web
 
 WORKDIR /app/apps/web
 
@@ -39,11 +39,11 @@ RUN pnpm build
 
 # ── Stage 2: Builder ──────────────────────────────────────────────────────────
 # DIGEST-PIN: Refresh with:
-#   docker pull rust:1.96-slim-bookworm
-#   docker inspect --format '{{index .RepoDigests 0}}' rust:1.96-slim-bookworm
+#   docker pull rust:1.90-slim-bookworm
+#   docker inspect --format '{{index .RepoDigests 0}}' rust:1.90-slim-bookworm
 # Then replace the tag below with:
-#   FROM rust@sha256:<digest> AS builder  # rust:1.96-slim-bookworm
-FROM rust:1.96-slim-bookworm AS builder
+#   FROM rust@sha256:<digest> AS builder  # rust:1.90-slim-bookworm
+FROM rust:1.90-slim-bookworm AS builder
 
 WORKDIR /app
 

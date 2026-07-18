@@ -22,11 +22,11 @@ Synapse2 uses `SYNAPSE_*` variables for service configuration and
 
 | Variable | Default | Purpose |
 |---|---:|---|
-| `SYNAPSE_MCP_HOST` | `127.0.0.1` | Bind host for HTTP transport. Set `0.0.0.0` only with bearer, OAuth, or trusted-gateway auth configured. |
+| `SYNAPSE_MCP_HOST` | `127.0.0.1` | Bind host for HTTP transport. Set `0.0.0.0` only with bearer or OAuth configured. |
 | `SYNAPSE_MCP_PORT` | `40080` | Bind port for HTTP transport. |
 | `SYNAPSE_MCP_SERVER_NAME` | `synapse2` | MCP server name advertised to clients. |
 | `SYNAPSE_MCP_NO_AUTH` | `false` | Disable local auth for loopback development only. |
-| `SYNAPSE_NOAUTH` | `false` | Trusted-gateway no-auth mode for non-loopback deployments. |
+| `SYNAPSE_NOAUTH` | `false` | Delegate auth/authz to a trusted upstream gateway on non-loopback binds. Requires network isolation so only the gateway can reach Synapse. |
 | `SYNAPSE_MCP_ALLOW_DESTRUCTIVE` | `false` | Skip destructive-operation confirmation prompts. Startup refuses this on non-loopback binds. |
 | `SYNAPSE_MCP_TOKEN` | unset | Static bearer token. Required for bearer-only mounted HTTP. |
 | `SYNAPSE_MCP_ALLOWED_HOSTS` | unset | Extra accepted Host header values (comma-separated). |
@@ -42,7 +42,7 @@ Synapse2 uses `SYNAPSE_*` variables for service configuration and
 | `SYNAPSE_MCP_AUTH_AUTHORIZE_REQUESTS_PER_MINUTE` | `60` | OAuth authorization rate limit. |
 | `SYNAPSE_MCP_AUTH_DISABLE_STATIC_TOKEN_WITH_OAUTH` | `true` | Disable static bearer tokens when OAuth is active. |
 | `SYNAPSE_MCP_AUTH_ALLOWED_REDIRECT_URIS` | unset | Extra OAuth redirect URI patterns (comma-separated). |
-| `SYNAPSE_MCP_MAX_CONCURRENCY` | `50` | Maximum simultaneous in-flight requests on `/mcp` and `/v1/synapse2`. Excess requests are queued (back-pressure), not rejected. Set to `0` to disable. `/health` and `/status` are exempt. This is a global cap across all clients, not a per-client rate limit. |
+| `SYNAPSE_MCP_MAX_CONCURRENCY` | `50` | Maximum simultaneous in-flight requests on `/mcp` and `/v1/synapse2`. Excess requests receive HTTP 429 with `Retry-After`. Set to `0` to disable. `/health`, `/ready`, and `/status` are exempt. This is a global cap across all clients, not a per-client rate limit. |
 
 ## Host topology
 
@@ -71,7 +71,7 @@ Only required when `SYNAPSE_MCP_AUTH_MODE=oauth`:
 |---|---|
 | `DOCKER_GID` | Host docker group id; required when the Docker socket is mounted. |
 | `DOCKER_NETWORK` | Docker network name (default: `mcp`). |
-| `SYNAPSE2_VERSION` | Image tag to pull (default: `latest`). |
+| `SYNAPSE2_VERSION` | Image tag to pull (default: `latest`); pin a release or `sha-<full-commit>` tag for production rollout and rollback. |
 | `SYNAPSE_MCP_HOST_PORT` | Host port published to the container MCP port. |
 
 ## Logging

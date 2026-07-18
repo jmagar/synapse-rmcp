@@ -31,8 +31,9 @@
 #   0.0.0.0   → accept connections from all interfaces (for Docker, reverse proxy)
 #   127.0.0.1 → loopback only (safest for local dev; no auth required)
 # Leave as 0.0.0.0 for Docker deployments. By default, non-loopback binds require
-# bearer/OAuth auth; trusted gateways may explicitly opt into upstream-enforced
-# auth with SYNAPSE_NOAUTH=true.
+# bearer/OAuth auth. A trusted gateway may instead own auth/authz when
+# SYNAPSE_NOAUTH=true, but the port must then be isolated so only that gateway
+# can reach it.
 host = "0.0.0.0"
 
 # Bind port for the MCP HTTP server.

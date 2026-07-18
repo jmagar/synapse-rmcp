@@ -22,7 +22,7 @@ curl -s http://127.0.0.1:40080/status | jq .
 ```
 
 Loopback no-auth is only for local development. Non-loopback binds require a
-bearer token, OAuth, or an explicitly trusted gateway configuration.
+bearer token or OAuth, including when deployed behind a gateway.
 
 ## 2. Try the CLI
 

@@ -40,6 +40,16 @@ impl SshExecutor for AlwaysFailExec {
     }
 }
 
+struct SlowExec;
+
+#[async_trait]
+impl SshExecutor for SlowExec {
+    async fn exec(&self, _: &HostConfig, _: &str, _: &[&str]) -> Result<CommandOutput> {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        unreachable!("deadline must cancel the executor")
+    }
+}
+
 // ─── Mock confirmers ─────────────────────────────────────────────────────────
 
 /// Always approves.
@@ -157,6 +167,47 @@ async fn exec_rejects_non_allowlisted_command() {
         msg.contains("allowlist") || msg.contains("not allowlist") || msg.contains("denied"),
         "{msg}"
     );
+}
+
+#[tokio::test]
+async fn exec_local_reads_through_bound_descriptor() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("value.txt");
+    std::fs::write(&path, "descriptor-safe").unwrap();
+    let mut host = HostConfig::local();
+    host.scout_read_roots = vec![dir.path().to_string_lossy().into_owned()];
+
+    let result = super::exec(
+        &host,
+        &AlwaysOkExec,
+        &ApproveConfirmer,
+        "cat",
+        &[path.to_string_lossy().into_owned()],
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["stdout"], "descriptor-safe");
+}
+
+#[tokio::test(start_paused = true)]
+async fn exec_enforces_requested_timeout() {
+    let mut host = HostConfig::local();
+    host.name = "remote".into();
+    host.host = "remote.example".into();
+    host.protocol = crate::synapse::HostProtocol::Ssh;
+    let error = super::exec_with_timeout(
+        &host,
+        &SlowExec,
+        &ApproveConfirmer,
+        "cat",
+        &[],
+        None,
+        Some(1),
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("timed out after 1s"), "{error}");
 }
 
 // ─── emit tests ──────────────────────────────────────────────────────────────

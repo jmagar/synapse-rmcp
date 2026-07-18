@@ -248,6 +248,7 @@ fn dotenv_entries_override_config_values() {
         SYNAPSE_MCP_HOST=127.0.0.1
         SYNAPSE_MCP_PORT=40080
         SYNAPSE_MCP_NO_AUTH=true
+        SYNAPSE_NOAUTH=true
         "#,
         std::path::Path::new("test.env"),
     )
@@ -259,6 +260,7 @@ fn dotenv_entries_override_config_values() {
     assert_eq!(config.mcp.host, "127.0.0.1");
     assert_eq!(config.mcp.port, 40080);
     assert!(config.mcp.no_auth);
+    assert!(config.mcp.trusted_gateway);
 }
 
 #[test]

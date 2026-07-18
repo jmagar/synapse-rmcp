@@ -11,7 +11,11 @@ no-default-features = false
 
 [advisories]
 version = 2
-yanked = "deny"
+# `spin 0.9.8` is forced by lab-auth -> jsonwebtoken -> rsa -> lazy_static.
+# A repository guard permits only that exact package through 2026-10-01 and
+# fails on every other yanked crate. Remove this exception when lab-auth moves
+# off the RSA dependency chain. See scripts/check-yanked-exceptions.py.
+yanked = "warn"
 
 # Known advisories we've reviewed and accepted:
 ignore = [

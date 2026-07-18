@@ -1,51 +1,50 @@
-# Phase 1: Code Quality and Architecture
+# Phase 1: Code Quality & Architecture Review
 
-## Findings
+## Code Quality Findings
 
-- High — `apps/web/lib/template.ts:1`
-  The embedded web UI is still architected around the template service rather than Synapse2. `WEB_APP_CONFIG` identifies `serviceName: "example"`, `displayName: "rmcp-template"`, `NEXT_PUBLIC_EXAMPLE_API_BASE_URL`, and `restEndpoint: "/v1/example"` even though the Rust router exposes `/v1/synapse2` and the actual tool model is `flux`/`scout`.
-  Impact: the dashboard, API explorer, and tool runner are built on the wrong product contract; users will see invalid actions and calls will target a nonexistent REST path when served by the current binary.
-  Fix: replace the web action model with Synapse2 REST metadata (`help`, `flux.docker.*`, `flux.container.list`, `scout.*`), update the public env var name, and keep it generated or checked directly against `docs/generated/openapi.json`.
+### High
 
-- High — `apps/web/lib/api.ts:68`
-  The typed web client still exports `greet`, `echo`, and `status` helpers for the template `/v1/example` API. `apps/web/app/page.tsx:49` wires dashboard quick actions to those helpers.
-  Impact: the first-screen user workflow is not representative of Synapse2 and fails against the backend. This is already detected by `cd apps/web && pnpm test`, which fails because `REST_ACTIONS` is `greet/echo/status/help` while OpenAPI lists the real Synapse2 actions.
-  Fix: remove template helper methods and add explicit Synapse2 helpers or a generic action runner that uses real dotted REST actions.
+1. **`scout exec` accepts but discards `timeout_secs`.** `src/actions/scout.rs:181-188`, `src/actions/dispatch.rs:101-105`, `src/scout_service.rs:160-176`, and `src/cli/scout.rs:82-93,281-285` parse the field but never pass it into execution, so callers can block until the global five-minute deadline. Thread it through both transports and the domain service, and test that it is enforced.
 
-- High — `.github/workflows/release.yml:29`
-  The release workflow still sets `BINARY_NAME: example` even though `Cargo.toml` defines the binary as `synapse`. The artifact copy step uses that variable at `.github/workflows/release.yml:109`.
-  Impact: tag releases will build the crate but fail when packaging `target/.../release/example`, so release assets and plugin binary updates cannot be trusted.
-  Fix: set `BINARY_NAME: synapse`, refresh comments, and add a workflow/static check that validates workflow binary names against `Cargo.toml`.
+### Medium
 
-- High — `.github/workflows/docker-publish.yml:28`
-  Docker publishing still targets `ghcr.io/jmagar/example-mcp`, and the Trivy scan checks `ghcr.io/jmagar/example-mcp:latest` at `.github/workflows/docker-publish.yml:104`.
-  Impact: successful pushes would publish and scan the wrong image identity, leaving the Synapse2 image unpublished or unscanned under the expected package name.
-  Fix: change the image to the Synapse2 package name and add a release/ops invariant test for workflow image references.
+2. **Scout CLI silently discards command arguments.** `src/cli/help/catalog.rs:256-261` advertises `--args`, while `src/cli/scout.rs:82-93,115-123` constructs empty argument vectors for `exec` and `emit`. Implement repeatable/delimited argv parsing and parity tests.
+3. **Generic CLI parsing silently accepts unknown flags.** `src/cli.rs:300-326` ignores well-formed option pairs that are not the flag currently being queried. Parse once against an explicit allowed set and reject unknown/duplicate options.
+4. **Invalid numeric Scout CLI values silently become defaults.** `src/cli/scout.rs:30-32,42-45,55-57,83-84,115-116,165-167,184-189` uses `parse().unwrap_or(default)`. Return flag-specific validation errors using the established Flux parser pattern.
+5. **Log retrieval converts command failures into successful empty output.** `src/scout_service/logs.rs:391-417` accepts nonzero primary/fallback exits except a narrow missing-file case. Check both statuses and return bounded contextual errors.
+6. **Web action metadata has drifted from backend validation.** `apps/web/lib/template.ts:203-248`, `apps/web/app/tools/page.tsx:169-199`, and `src/actions/flux.rs:257-278` disagree about required `force` and `prune_target`, leaving prune unusable. Correct metadata and add required-field/type/enum contract checks.
+7. **Container recreation suppresses every stop failure.** `src/flux_service/container_lifecycle.rs:219-227` discards all stop errors rather than only the expected already-stopped condition. Propagate unexpected daemon, auth, timeout, and transport failures.
 
-- Medium — `src/scout.rs:1`
-  `src/scout.rs` still contains an older MVP implementation for `nodes`, `peek`, and `exec` with direct local-only behavior, while the active `ScoutService` implementation lives under `src/scout_service/`. The active code still imports `scout::nodes` and `scout::resolve_host`, but the stale `peek`/`exec` functions remain public within the crate.
-  Impact: future changes can accidentally patch or call the wrong Scout implementation, especially because the stale functions perform their own subprocess logic and error text that no longer matches the service-layer policy.
-  Fix: reduce `src/scout.rs` to host-resolution/node helpers only, or move those helpers to a clearer module and delete the stale MVP functions.
+### Low
 
-- Medium — `src/actions/flux.rs:1`, `src/cli/flux.rs:1`, `src/cli/help.rs:1`, `src/config.rs:1`, `src/mcp/help.rs:1`
-  The module-size gate reports these production modules over the 400-line soft budget. None exceed the 1000-line hard gate, but several are coordination-heavy files where unrelated parser/help/config concerns are growing together.
-  Impact: review and parity changes are harder to reason about, especially in action-dispatch code where schema, CLI, REST, and MCP drift are common failure modes.
-  Fix: split by subdomain where cohesive: `actions/flux/{args,parse,dispatch}.rs`, `cli/help/{top_level,flux,scout}.rs`, and `mcp/help/{index,topics}.rs`.
+8. **`MemoryCache` does not deliver its documented LRU/strict-capacity behavior.** `src/cache.rs:42-46,92-114,132-153` evicts by insertion time, races concurrent capacity checks, and permits an entry at zero capacity. Implement true access recency with atomic bounded insertion or rename the abstraction and correct edge cases.
 
-- Medium — `tests/tool_dispatch.rs:11`
-  The direct MCP dispatch test suite exercises only `flux help`, `flux docker info`, `scout nodes`, and one denied `scout exec` path. `cargo xtask patterns` warns that `container`, `compose`, `peek`, `find`, `df`, `delta`, `emit`, `beam`, `zfs`, and `logs` may be missing direct tool-dispatch coverage.
-  Impact: parser/schema/service drift can pass the focused dispatch suite and only surface through broader tests or live MCP calls.
-  Fix: add table-driven dispatch tests for each action family, using mocked service seams or loopback-safe inputs where possible.
+## Architecture Findings
 
-## Positive Architecture Notes
+### High
 
-- `src/app.rs` is now a thin facade over `FluxService` and `ScoutService`, which matches the repo instruction to avoid a growing `SynapseService` god object.
-- `src/mcp/tools.rs` is a thin protocol shim that delegates to typed `SynapseAction` parsing and `execute_service_action`.
-- Parsed-action scope derivation in `src/actions.rs` correctly handles mutating `flux` subactions instead of relying only on top-level action names.
-- `cargo test --locked`, OpenAPI/schema docs checks, and hard pattern gates pass, so the current issues are not broad Rust compile failures.
+1. **Connection caches can permanently target stale hosts after topology changes.** `src/docker_client/cache.rs:53-69`, `src/ssh/pool.rs:191-208`, `src/host_config.rs:194-215`, and `src/flux_service.rs:114-119` key long-lived clients/sessions only by alias (and SSH port), omitting endpoint/user/credential/socket identity. Use a canonical connection key or invalidate caches when topology revisions change; test alias retargeting.
+2. **The embedded operator UI is disconnected from mounted HTTP authentication.** `apps/web/lib/api.ts:60-69`, UI pages, and `src/server/routes.rs:146-174,240-249` expose unauthenticated static UI that issues protected REST calls without bearer/OAuth state. Define and implement a supported browser-auth contract and explicit authenticated/disabled states.
+
+### Medium
+
+3. **REST capability metadata advertises names REST rejects.** `src/actions.rs:71-218,338-347`, `src/api.rs:101-177`, and `apps/web/lib/template.ts:47-77` mix top-level action metadata with a separate dotted-action parser/catalog. Establish one canonical dotted-operation registry and generate REST help/OpenAPI/web metadata.
+4. **SSH eviction and shutdown lifecycle APIs are never wired into runtime composition.** `src/ssh/pool.rs:283-337`, `src/docker_client/cache.rs:100-103`, and `src/main.rs` never start eviction or close/clear shared resources. Add runtime lifecycle ownership covering HTTP and stdio startup/shutdown.
+
+### Low
+
+5. **Facade dependency mutators can violate the single-SSH-pool invariant.** `src/app.rs:39-89` and `src/flux_service.rs:76-98` independently replace pool-dependent components. Use a validated dependency bundle or focused test constructors.
+6. **`MemoryCache` is documented as LRU but is FIFO.** This overlaps code-quality finding 8 and should be remediated once.
+7. **Flux action parsing exceeds the 400-line advisory budget.** `src/actions/flux.rs` is 432 real-code lines and combines four domains. Split into sibling `docker`, `container`, `host`, and `compose` modules behind a thin router.
 
 ## Critical Issues for Phase 2 Context
 
-- The web UI exposes stale template actions and endpoints; phase 2 should treat this as a user-facing contract/integrity problem, not only polish.
-- Release and Docker workflows reference stale artifact/image names; phase 2 should assess supply-chain and deployability impact.
-- Static bearer tokens appear read-only by construction; phase 2 should check whether write-scope operations have an intended non-OAuth bearer path.
+- No Critical-severity findings were reported.
+- Security review should focus on stale connection identity and the web/auth trust-model mismatch.
+- Performance review should focus on cache-key correctness, cache boundedness, SSH/client lifecycle, and command timeout enforcement.
+- Cross-transport contract duplication is the dominant systemic cause behind several defects.
+
+## Phase Counts
+
+- Code Quality: 0 Critical, 1 High, 6 Medium, 1 Low.
+- Architecture: 0 Critical, 2 High, 2 Medium, 3 Low (one overlaps Code Quality).

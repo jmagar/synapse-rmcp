@@ -23,18 +23,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - **RBAC scope corrections** — `flux docker pull`, `flux container start/restart/pause/resume/pull`, and `flux compose up/build/pull` are now documented (and enforced) as `synapse:write`. Read-only tokens that appeared to allow these actions will be denied. Enforcement was already write-scoped in practice; this corrects the documentation and schema to match.
-- **Global concurrency cap** — new `SYNAPSE_MCP_MAX_CONCURRENCY` env var (default `50`) caps simultaneous in-flight requests on `/mcp` and `/v1/synapse2`. Excess requests are queued, not rejected. `/health` and `/status` are exempt. Set to `0` to disable.
-- **`/openapi.json` now requires auth** on non-loopback (`Mounted`) deployments to prevent unauthenticated schema enumeration. The endpoint remains public under `LoopbackDev` and `TrustedGatewayUnscoped` policies.
+- **Global concurrency cap** — new `SYNAPSE_MCP_MAX_CONCURRENCY` env var (default `50`) caps simultaneous in-flight requests on `/mcp` and `/v1/synapse2`. Excess requests receive HTTP 429 with `Retry-After`; `/health`, `/ready`, and `/status` are exempt. Set to `0` to disable.
+- **`/openapi.json` now requires auth** on non-loopback (`Mounted`) deployments to prevent unauthenticated schema enumeration. The endpoint remains public under `LoopbackDev`.
 - **`journalctl` filter args validated** — `unit`, `priority`, `since`, and `until` arguments for `scout logs journal` are now validated before being passed to `journalctl`. Extended priority range syntax (e.g. `err..warning`) is rejected; only the RFC 5424 named levels are accepted.
 - **`scout beam` hardened** — `ssh_user` and `host` are validated; the SSH port is now passed as a separate `-P` flag rather than interpolated into the host string.
 - **Remote `scout peek`/`find`/`delta` reject symlinks** — a pre-read `stat` check over SSH rejects symbolic links before content is read (S-M1 TOCTOU guard).
 - **Secrets redacted in debug output** — `SYNAPSE_MCP_TOKEN` and the Google OAuth client secret are redacted to `[REDACTED]` in all `Debug` formatting and log output.
-- **Loud startup warning** when `SYNAPSE_NOAUTH=true` is active on a non-loopback bind address.
+- **Removed unauthenticated trusted-gateway mode.** Non-loopback HTTP now always requires local bearer or OAuth authentication, including behind a gateway.
 
 ### Fixed
 
+- **Agent-native MCP contracts** now provide conditional operation schemas, caller-visible structured execution errors, accurate quick-start calls and CLI naming, tool-specific schema resources, and conservative safety annotations.
+- **Shared runtime context** adds read-scoped `synapse://status` and `synapse://activity` resources plus a bounded `/activity` feed consumed by the operator dashboard across REST and MCP calls.
 - **REST destructive-op denials return HTTP 403** (was 500) for both flux and scout actions when no elicitation channel is available.
 - **Stale SSH-forwarded Docker sockets evicted on transport death** across all docker/container read operations. Previously only some code paths triggered eviction.
+- **Scout CLI and execution contracts** now preserve argv, reject unknown or malformed options, and enforce requested command deadlines.
+- **Operator web request safety** now keeps bearer credentials in memory, gates actions from authoritative server capabilities, synchronously blocks duplicate submissions, aborts superseded requests, rejects stale completions and polling responses, and renders activity from server-owned sequence IDs.
+- **Cache and mutation error handling** now provides strict bounded LRU behavior and aborts log/recreate workflows on unexpected command failures.
 
 ### Changed
 
@@ -77,9 +82,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bind-mounts `/var/run/docker.sock` and requires `DOCKER_GID` so the UID-1000
   service has the host's docker group. `entrypoint.sh` still detects the socket
   GID for direct root-started `docker run` use.
-- **Production compose no longer defaults to trusted-gateway no-auth.**
-  `docker-compose.prod.yml` now requires `SYNAPSE_MCP_TOKEN` by default; operators
-  who intentionally rely on upstream auth can opt into `SYNAPSE_NOAUTH=true`.
+- **Production compose no longer defaults to trusted-gateway no-auth.** The
+  explicit `SYNAPSE_NOAUTH=true` compatibility mode remains supported for
+  isolated Labby/proxy deployments where the gateway enforces auth/authz.
 - **`.env.example` slimmed to secrets, URLs, and runtime vars only;** non-secret
   server tuning is documented in `config.example.toml`, which now also explains
   host-topology discovery from `~/.ssh/config`.

@@ -15,9 +15,11 @@ Maintenance and automation scripts for the template. Shell scripts are written f
 | `check-dependency-updates.sh` | Report lockfile-compatible and latest dependency updates. |
 | `check-file-size.sh` | Pre-commit source file size budget. |
 | `check-runtime-current.sh` | Detect stale Docker/systemd runtimes. |
+| `check-yanked-exceptions.py` | Fail on unapproved or expired yanked dependency exceptions. |
 | `check-openapi.py` | Generate/check `docs/generated/openapi.json` for the REST API surface. |
 | `check-schema-docs.py` | Generate/check `docs/MCP_SCHEMA.md` and action docs. |
 | `check-scaffold-intent-contract.py` | Validate scaffold intent schema and examples without third-party dependencies. |
+| `check-identity-contract.py` | Reject stale template identities, default ports, and duplicate action registries. |
 | `check-version-sync.sh` | Check version consistency. |
 | `generate-cli.sh` | Generate a standalone CLI for this server via mcporter (requires running server). |
 | `pre-release-check.sh` | Full release-readiness gate, including schema/OpenAPI/scaffold contract drift checks. |
@@ -26,6 +28,7 @@ Maintenance and automation scripts for the template. Shell scripts are written f
 | `run-ascii-check.sh` | Collect tracked files and run `asciicheck.py`; pass `--fix` to rewrite in place. |
 | `sync-cargo.sh` | Sync `Cargo.lock` into plugin data directories. |
 | `test-mcp-auth.sh` | Smoke-test HTTP MCP bearer auth. |
+| `test-live-jsonrpc.sh` | Smoke-test a live MCP server and disposable SSH fixture. |
 | `test-template-features.sh` | Fast template invariant smoke tests. |
 | `validate-plugin-layout.sh` | Validate Claude/Codex/Gemini plugin package layout. |
 | `web-watch.sh` | Watch `apps/web` for changes and rebuild on save (requires watchexec). |
@@ -115,7 +118,7 @@ just openapi
 just openapi-check
 ```
 
-Generates `docs/generated/openapi.json` for the template REST API surface: `GET /health`, `GET /status`, and `POST /v1/example`. The action enum is derived from `src/actions.rs` and excludes MCP-only actions such as `scaffold_intent`.
+Generates `docs/generated/openapi.json` for the Synapse2 REST API surface, including probes and `POST /v1/synapse2`. Operation metadata is derived from `src/actions/operations.rs`; MCP-only operations remain documented separately.
 
 ### `check-scaffold-intent-contract.py`
 
@@ -130,12 +133,23 @@ Validates `docs/contracts/scaffold-intent.schema.json` plus checked-in examples 
 
 ```bash
 scripts/check-runtime-current.sh
-scripts/check-runtime-current.sh --mode systemd --expected-binary target/release/example
+scripts/check-runtime-current.sh --mode systemd --expected-binary target/release/synapse
 scripts/check-runtime-current.sh --mode docker --pull --compose-dir .
 just runtime-current
 ```
 
 Systemd mode compares the running process hash to the unit `ExecStart` binary and optional expected binary. Docker mode compares the running container image ID with the local Compose image ID.
+
+### `check-yanked-exceptions.py`
+
+```bash
+python3 scripts/check-yanked-exceptions.py
+```
+
+Runs the Cargo Deny advisories check and rejects every yanked dependency except
+the exact, documented, time-bounded exception in the script. It also fails once
+an exception reaches its expiry date, ensuring the waiver cannot become
+permanent by accident.
 
 ### `check-schema-docs.py`
 
@@ -146,7 +160,7 @@ just schema-docs
 just schema-docs-check
 ```
 
-Treats `src/actions.rs::ACTION_SPECS` as canonical and verifies schema docs, help text, README, and plugin skill mentions. Generated output lives in `docs/MCP_SCHEMA.md`.
+Treats `src/actions/operations.rs::OPERATION_SPECS` as canonical and verifies schema docs, help text, README, and plugin skill mentions. Generated output lives in `docs/MCP_SCHEMA.md`.
 
 ### `build-web.sh`
 
@@ -169,7 +183,7 @@ Validates that version-bearing files agree. Missing `CHANGELOG.md` entries are w
 ### `generate-cli.sh`
 
 ```bash
-EXAMPLE_MCP_TOKEN=... bash scripts/generate-cli.sh
+SYNAPSE_MCP_TOKEN=... bash scripts/generate-cli.sh
 just generate-cli
 ```
 
@@ -226,7 +240,7 @@ bash scripts/repair.sh
 just repair
 ```
 
-Stops, rebuilds, and restarts the `example-mcp` service. Detects the active service manager automatically: prefers a systemd user unit (`example-mcp.service`), falls back to Docker Compose. Useful after an in-place binary update without a full `docker compose build`.
+Stops, rebuilds, and restarts the `synapse2` service. Detects the active service manager automatically: prefers the `synapse2.service` systemd user unit, then falls back to Docker Compose. Useful after an in-place binary update without a full `docker compose build`.
 
 ### `run-ascii-check.sh`
 
@@ -250,8 +264,8 @@ Copies `Cargo.lock` from `CLAUDE_PLUGIN_ROOT` to `CLAUDE_PLUGIN_DATA` when neede
 ### `test-mcp-auth.sh`
 
 ```bash
-EXAMPLE_MCP_TOKEN=... scripts/test-mcp-auth.sh
-scripts/test-mcp-auth.sh --url http://localhost:3100/mcp --token ...
+SYNAPSE_MCP_TOKEN=... scripts/test-mcp-auth.sh
+scripts/test-mcp-auth.sh --url http://localhost:40080/mcp --token ...
 scripts/test-mcp-auth.sh --check-x-api-key
 ```
 
@@ -279,7 +293,7 @@ Watches `apps/web/` for changes and rebuilds on save using `watchexec`. Ignores 
 
 ```bash
 scripts/validate-plugin-layout.sh
-PLUGIN_ROOT=plugins/example scripts/validate-plugin-layout.sh
+PLUGIN_ROOT=plugins/synapse2 scripts/validate-plugin-layout.sh
 just validate-plugin
 ```
 

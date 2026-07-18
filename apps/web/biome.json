@@ -1,7 +1,15 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
   "files": {
-    "includes": ["**", "!node_modules", "!.next", "!out", "!build", "!next-env.d.ts"]
+    "includes": [
+      "**",
+      "!node_modules",
+      "!.next",
+      "!out",
+      "!build",
+      "!next-env.d.ts",
+      "!lib/generated-operation-metadata.json"
+    ]
   },
   "formatter": {
     "enabled": true,

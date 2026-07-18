@@ -1,7 +1,12 @@
 import type { HTMLAttributes, Ref } from "react";
 import { cn } from "@/lib/utils";
 
-function Card({ className, style, ref, ...props }: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
+function Card({
+  className,
+  style,
+  ref,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
   return (
     <div
       ref={ref}
@@ -18,7 +23,12 @@ function Card({ className, style, ref, ...props }: HTMLAttributes<HTMLDivElement
 }
 Card.displayName = "Card";
 
-function CardHeader({ className, style, ref, ...props }: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
+function CardHeader({
+  className,
+  style,
+  ref,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
   return (
     <div
       ref={ref}
@@ -30,7 +40,12 @@ function CardHeader({ className, style, ref, ...props }: HTMLAttributes<HTMLDivE
 }
 CardHeader.displayName = "CardHeader";
 
-function CardTitle({ className, style, ref, ...props }: HTMLAttributes<HTMLHeadingElement> & { ref?: Ref<HTMLHeadingElement> }) {
+function CardTitle({
+  className,
+  style,
+  ref,
+  ...props
+}: HTMLAttributes<HTMLHeadingElement> & { ref?: Ref<HTMLHeadingElement> }) {
   return (
     <h3
       ref={ref}
@@ -42,7 +57,12 @@ function CardTitle({ className, style, ref, ...props }: HTMLAttributes<HTMLHeadi
 }
 CardTitle.displayName = "CardTitle";
 
-function CardDescription({ className, style, ref, ...props }: HTMLAttributes<HTMLParagraphElement> & { ref?: Ref<HTMLParagraphElement> }) {
+function CardDescription({
+  className,
+  style,
+  ref,
+  ...props
+}: HTMLAttributes<HTMLParagraphElement> & { ref?: Ref<HTMLParagraphElement> }) {
   return (
     <p
       ref={ref}
@@ -54,14 +74,21 @@ function CardDescription({ className, style, ref, ...props }: HTMLAttributes<HTM
 }
 CardDescription.displayName = "CardDescription";
 
-function CardContent({ className, ref, ...props }: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
-  return (
-    <div ref={ref} className={cn("px-4 py-3", className)} {...props} />
-  );
+function CardContent({
+  className,
+  ref,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
+  return <div ref={ref} className={cn("px-4 py-3", className)} {...props} />;
 }
 CardContent.displayName = "CardContent";
 
-function CardFooter({ className, style, ref, ...props }: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
+function CardFooter({
+  className,
+  style,
+  ref,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) {
   return (
     <div
       ref={ref}

@@ -7,7 +7,14 @@ export interface SeparatorProps extends HTMLAttributes<HTMLDivElement> {
   ref?: Ref<HTMLDivElement>;
 }
 
-function Separator({ className, orientation = "horizontal", decorative = true, style, ref, ...props }: SeparatorProps) {
+function Separator({
+  className,
+  orientation = "horizontal",
+  decorative = true,
+  style,
+  ref,
+  ...props
+}: SeparatorProps) {
   const separatorProps =
     decorative || orientation === "horizontal"
       ? {}
@@ -17,10 +24,7 @@ function Separator({ className, orientation = "horizontal", decorative = true, s
     <div
       ref={ref}
       role={decorative ? "none" : "separator"}
-      className={cn(
-        orientation === "vertical" ? "h-full min-h-5 w-px" : "h-px w-full",
-        className,
-      )}
+      className={cn(orientation === "vertical" ? "h-full min-h-5 w-px" : "h-px w-full", className)}
       style={{
         background: "var(--aurora-border-default)",
         ...style,

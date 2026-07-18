@@ -53,7 +53,7 @@ Use the right layer for the job:
 | `README.md` | High-level documentation index | Adding, removing, or renaming docs |
 | `QUICKSTART.md` | Local smoke test path | Startup sequence, CLI flags, port, or auth env changes |
 | `API.md` | MCP, CLI, and REST action reference | Actions, parameters, scopes, or parity behavior changes |
-| `MCP_SCHEMA.md` | Generated MCP schema contract | `ACTION_SPECS` changes |
+| `MCP_SCHEMA.md` | Generated MCP schema contract | `OPERATION_SPECS` changes |
 | `AUTH.md` | Bearer/OAuth/auth-policy behavior | Auth mode, scope, token, or gateway behavior changes |
 | `CONFIG.md` / `ENV.md` | Config loading and environment variables | `src/config.rs` or host-config loading changes |
 | `ARCHITECTURE.md` | Module map and layering | Service/module boundaries change |

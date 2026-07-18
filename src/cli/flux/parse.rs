@@ -17,6 +17,19 @@ pub(in crate::cli) fn parse_flux(args: &[String]) -> Result<Command> {
 
 fn parse_flux_docker(subaction: &str, rest: &[String]) -> Result<Command> {
     const BOOL_FLAGS: &[&str] = &["--dangling-only", "--no-cache", "--force"];
+    super::super::validate_named_args(
+        rest,
+        &[
+            "--host",
+            "--image",
+            "--context",
+            "--tag",
+            "--dockerfile",
+            "--target",
+            "--response-format",
+        ],
+        BOOL_FLAGS,
+    )?;
     let has_bool = |flag: &str| rest.iter().any(|a| a == flag);
     let dangling_only = has_bool("--dangling-only");
     let no_cache = has_bool("--no-cache");
@@ -51,6 +64,28 @@ fn parse_flux_container(subaction: &str, rest: &[String]) -> Result<Command> {
         .cloned()
         .collect();
     let (option_args, command) = split_command_argv(&value_args);
+    super::super::validate_named_args(
+        &option_args,
+        &[
+            "--container-id",
+            "--lines",
+            "--timeout",
+            "--host",
+            "--state",
+            "--name-filter",
+            "--image-filter",
+            "--label-filter",
+            "--since",
+            "--until",
+            "--grep",
+            "--stream",
+            "--query",
+            "--user",
+            "--workdir",
+            "--response-format",
+        ],
+        &[],
+    )?;
     let container_id = super::super::parse_optional_named_value(&option_args, "--container-id")?;
     let lines = super::super::parse_optional_named_value(&option_args, "--lines")?
         .map(|value| value.parse())
@@ -93,6 +128,20 @@ fn split_command_argv(args: &[String]) -> (Vec<String>, Vec<String>) {
 }
 
 fn parse_flux_host(subaction: &str, rest: &[String]) -> Result<Command> {
+    super::super::validate_named_args(
+        rest,
+        &[
+            "--host",
+            "--state",
+            "--service",
+            "--protocol",
+            "--limit",
+            "--offset",
+            "--checks",
+            "--response-format",
+        ],
+        &[],
+    )?;
     Ok(Command::FluxHost(Box::new(HostArgs {
         response_format: super::super::parse_optional_response_format(rest)?,
         subaction: subaction.to_owned(),
@@ -114,6 +163,18 @@ fn parse_flux_host(subaction: &str, rest: &[String]) -> Result<Command> {
 
 fn parse_flux_compose(subaction: &str, rest: &[String]) -> Result<Command> {
     const BOOL_FLAGS: &[&str] = &["--remove-volumes", "--force"];
+    super::super::validate_named_args(
+        rest,
+        &[
+            "--host",
+            "--project",
+            "--lines",
+            "--since",
+            "--service",
+            "--response-format",
+        ],
+        BOOL_FLAGS,
+    )?;
     let has_bool = |flag: &str| rest.iter().any(|a| a == flag);
     let remove_volumes = has_bool("--remove-volumes");
     let force = has_bool("--force");

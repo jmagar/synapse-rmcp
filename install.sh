@@ -6,7 +6,7 @@
 #           service's actual binary name, URL, and version.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/jmagar/synapse2/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/jmagar/synapse-rmcp/main/install.sh | bash
 #   # or locally:
 #   bash install.sh
 #
@@ -16,7 +16,7 @@
 #   3. Installs it to ~/.local/bin (no root required)
 #   4. Verifies the installation with --version
 #
-# Requirements: curl, tar (Linux) or unzip (macOS), sha256sum or shasum
+# Requirements: Linux x86_64, curl, tar, sha256sum
 # =============================================================================
 
 set -euo pipefail
@@ -24,7 +24,7 @@ set -euo pipefail
 # ── CONFIGURATION — edit these values for your service ───────────────────────
 
 # GitHub org/repo.
-REPO="jmagar/synapse2"
+REPO="jmagar/synapse-rmcp"
 
 # Binary name (matches Cargo.toml [[bin]] name).
 BINARY_NAME="synapse"
@@ -56,11 +56,15 @@ ok()    { printf "${C_GREEN}[OK]${C_RESET}    %s\n" "$*"; }
 # ── Detect OS and architecture ────────────────────────────────────────────────
 
 detect_platform() {
-  local os arch
+  local arch
 
   case "$(uname -s)" in
-    Linux)  os="linux" ;;
-    Darwin) os="macos" ;;
+    Linux) ;;
+    Darwin)
+      error "macOS release binaries are not published."
+      error "Build from source: cargo install --git https://github.com/${REPO}"
+      exit 1
+      ;;
     *)
       error "Unsupported OS: $(uname -s)"
       error "Build from source: cargo install --git https://github.com/${REPO}"
@@ -80,9 +84,6 @@ detect_platform() {
 
   PLATFORM="${arch}"
   ARCHIVE_EXT="tar.gz"
-  if [[ "${os}" == "macos" ]]; then
-    ARCHIVE_EXT="tar.gz"
-  fi
 }
 
 # ── Resolve version ───────────────────────────────────────────────────────────
@@ -122,32 +123,28 @@ download_and_install() {
   info "Downloading ${SERVICE_NAME} ${VERSION} for ${PLATFORM}..."
   info "URL: ${url}"
 
-  if ! curl -fsSL --progress-bar "${url}" -o "${tmp_dir}/${archive}"; then
+  if ! curl --proto '=https' --proto-redir '=https' --max-redirs 5 --connect-timeout 15 --max-time 120 -fsSL --progress-bar "${url}" -o "${tmp_dir}/${archive}"; then
     error "Download failed: ${url}"
     error "Check that ${REPO}/releases has an asset for ${PLATFORM}"
     exit 1
   fi
 
-  # Verify SHA256 checksum against the SHA256SUMS file published by release.yml.
-  # The file contains one line per asset: "<sha256>  <filename>".
-  local sums_url="${base_url}/SHA256SUMS"
+  # Verify the per-asset SHA256 file published by release.yml.
+  local sums_url="${url}.sha256"
   info "Verifying checksum..."
-  if curl -fsSL "${sums_url}" -o "${tmp_dir}/SHA256SUMS" 2>/dev/null; then
-    # Extract only the line for our archive so sha256sum --check sees a valid file.
-    grep "${archive}" "${tmp_dir}/SHA256SUMS" > "${tmp_dir}/${archive}.sha256" || {
-      warn "Archive '${archive}' not found in SHA256SUMS — skipping verification"
-      warn "This may indicate a version mismatch or a tampered release asset."
-    }
-    if [[ -s "${tmp_dir}/${archive}.sha256" ]]; then
-      (cd "${tmp_dir}" && sha256sum --check "${archive}.sha256")
-      ok "Checksum verified"
-    fi
-  else
-    warn "No SHA256SUMS file found at ${sums_url} — skipping checksum verification"
-    warn "Consider verifying the binary manually before running it in production."
-  fi
+  curl --proto '=https' --proto-redir '=https' --max-redirs 5 --connect-timeout 15 --max-time 30 -fsSL \
+    "${sums_url}" -o "${tmp_dir}/${archive}.sha256"
+  (cd "${tmp_dir}" && sha256sum --check --strict "${archive}.sha256")
+  ok "Checksum verified"
 
   info "Extracting..."
+  local listing entry
+  listing="$(tar -tzvf "${tmp_dir}/${archive}")"
+  entry="${listing##* }"
+  if [[ "$(printf '%s\n' "${listing}" | wc -l)" -ne 1 || "${listing:0:1}" != "-" || ( "${entry}" != "${BINARY_NAME}" && "${entry}" != "./${BINARY_NAME}" ) ]]; then
+    error "Archive must contain exactly one regular ${BINARY_NAME} entry"
+    exit 1
+  fi
   tar -xzf "${tmp_dir}/${archive}" -C "${tmp_dir}"
 
   # TEMPLATE: The binary might be at the root of the archive, or in a subdirectory.
@@ -160,8 +157,21 @@ download_and_install() {
   fi
 
   mkdir -p "${INSTALL_DIR}"
-  install -m 755 "${binary}" "${INSTALL_DIR}/${BINARY_NAME}"
+  local destination previous staged previous_staged
+  destination="${INSTALL_DIR}/${BINARY_NAME}"
+  previous="${destination}.previous"
+  staged="$(mktemp "${INSTALL_DIR}/.${BINARY_NAME}.new.XXXXXX")"
+  install -m 755 "${binary}" "${staged}"
+  if [[ -f "${destination}" ]]; then
+    previous_staged="$(mktemp "${INSTALL_DIR}/.${BINARY_NAME}.previous.XXXXXX")"
+    cp -p "${destination}" "${previous_staged}"
+    mv -f "${previous_staged}" "${previous}"
+  fi
+  mv -f "${staged}" "${destination}"
   ok "Installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
+  if [[ -f "${previous}" ]]; then
+    ok "Previous binary preserved at ${previous}"
+  fi
 }
 
 # ── Verify installation ───────────────────────────────────────────────────────

@@ -170,6 +170,7 @@ All surfaces (MCP, REST API, web UI) share **one binary on one port**:
 Port 40080
   ├── /mcp                  → Streamable HTTP MCP transport
   ├── /health               → Unauthenticated liveness probe
+  ├── /ready                → Unauthenticated bounded topology readiness
   ├── /status               → Public redacted runtime state
   ├── /v1/synapse2          → REST API action dispatch
   ├── /.well-known/*        → OAuth metadata (when auth_mode=oauth)
@@ -181,6 +182,7 @@ Port 40080
 pub fn router(state: AppState) -> Router {
     let public = Router::new()
         .route("/health", get(health))
+        .route("/ready", get(ready))
         .route("/status", get(status));
 
     let api = Router::new()
@@ -290,7 +292,7 @@ Zero validation, zero defaults, zero error message crafting in shims. All of tha
 - Shims do not contain business logic.
 - All action metadata starts in `src/actions.rs`.
 - Read actions require `synapse:read`; write/destructive actions require `synapse:write`; `help` is public.
-- Stdio is local trusted transport; HTTP is protected unless in loopback or explicit trusted-gateway mode.
+- Stdio is a local trusted transport; non-loopback HTTP always requires local bearer or OAuth authentication.
 - Plugin setup is binary-owned: hook scripts delegate to `synapse setup plugin-hook`.
 
 See `docs/PATTERNS.md` §1, §7, §A1, §45 for full pattern details.

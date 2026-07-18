@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS_RS = ROOT / "src/mcp/schemas.rs"
-ACTION_RS = ROOT / "src/actions.rs"
+ACTION_RS = ROOT / "src/actions/operations.rs"
 HELP_RS = ROOT / "src/mcp/help.rs"
 PROMPTS_RS = ROOT / "src/mcp/prompts.rs"
 RESOURCES_RS = ROOT / "src/mcp/resources.rs"
@@ -42,28 +42,33 @@ def read(path: Path) -> str:
 
 def extract_actions() -> list[str]:
     text = read(ACTION_RS)
-    return re.findall(r'name:\s*"([^"]+)"', text)
+    actions: list[str] = []
+    for action in re.findall(r'operation!\(\s*"[^"]+"\s*,\s*\w+\s*,\s*"([^"]+)"', text):
+        if action not in actions:
+            actions.append(action)
+    return actions
 
 
 def extract_scope_for_actions() -> dict[str, str]:
     text = read(ACTION_RS)
-    entries = re.findall(r"ActionSpec\s*\{(.*?)\}", text, re.S)
     scopes: dict[str, str] = {}
-    for entry in entries:
-        name_match = re.search(r'name:\s*"([^"]+)"', entry)
-        scope_match = re.search(r"required_scope:\s*([^,\n]+)", entry)
-        if not name_match or not scope_match:
-            continue
-        name = name_match.group(1)
-        scope_expr = scope_match.group(1).strip()
+    pattern = re.compile(
+        r'operation!\(\s*"[^"]+"\s*,\s*\w+\s*,\s*"([^"]+)"\s*,\s*'
+        r'(?:None|Some\("[^"]+"\))\s*,\s*(None|Some\((?:READ_SCOPE|WRITE_SCOPE)\))',
+        re.S,
+    )
+    for name, scope_expr in pattern.findall(text):
         if scope_expr == "None":
-            scopes[name] = "public"
+            scope = "public"
         elif scope_expr == "Some(READ_SCOPE)":
-            scopes[name] = "`synapse:read`"
+            scope = "`synapse:read`"
         elif scope_expr == "Some(WRITE_SCOPE)":
-            scopes[name] = "`synapse:write`"
+            scope = "`synapse:write`"
         else:
-            scopes[name] = "`synapse2:__deny__`"
+            scope = "`synapse2:__deny__`"
+        current = scopes.get(name)
+        if current is None or scope in {"public", "`synapse:read`"}:
+            scopes[name] = scope
     return scopes
 
 
@@ -134,7 +139,7 @@ def render() -> str:
             "",
             "## Drift Rules",
             "",
-            "- `ACTION_SPECS` in `src/actions.rs` is the canonical action and scope list.",
+            "- `OPERATION_SPECS` in `src/actions/operations.rs` is the canonical operation, scope, transport, destructiveness, and required-parameter list.",
             "- `src/mcp/schemas.rs` must expose exactly the `flux` and `scout` tool schemas.",
             "- Both MCP tool schemas must reject unknown top-level parameters.",
             "- `help` is intentionally public and must have no required scope.",
@@ -184,7 +189,7 @@ def check_scope(actions: list[str]) -> list[str]:
     failures: list[str] = []
     scopes = extract_scope_for_actions()
     if set(scopes) != set(actions):
-        failures.append("ACTION_SPECS action names and scope entries are out of sync")
+        failures.append("OPERATION_SPECS action names and scope entries are out of sync")
     if scopes.get("help") != "public":
         failures.append("help must be public")
     for action in set(actions) - {"help"}:

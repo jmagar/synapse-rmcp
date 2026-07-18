@@ -402,7 +402,14 @@ async fn run_tail_with_fallback(
         Err(ref e) if e.to_string().to_lowercase().contains("no such file") => {
             // fall through to fallback
         }
-        Ok(out) => return Ok(out.stdout), // non-zero but not a missing-file error
+        Ok(out) => {
+            bail!(
+                "tail failed for {primary} on {} (exit {:?}): {}",
+                host.name,
+                out.exit_code,
+                out.stderr.trim()
+            )
+        }
         Err(e) => return Err(e),
     }
 
@@ -415,6 +422,14 @@ async fn run_tail_with_fallback(
             .run("tail", args_fallback)
             .await?
     };
+    if !out.success() {
+        bail!(
+            "tail fallback failed for {fallback} on {} (exit {:?}): {}",
+            host.name,
+            out.exit_code,
+            out.stderr.trim()
+        );
+    }
     Ok(out.stdout)
 }
 

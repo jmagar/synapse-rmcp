@@ -171,7 +171,7 @@ just schema-docs
 just schema-docs-check
 ```
 
-The checker treats `src/actions.rs::ACTION_SPECS` as canonical. `docs/MCP_SCHEMA.md` and `docs/generated/openapi.json` must stay in sync with it.
+The checker treats `src/actions/operations.rs::OPERATION_SPECS` as canonical. `docs/MCP_SCHEMA.md`, `docs/generated/openapi.json`, and the web-local generated metadata must stay in sync with it.
 
 ### OpenAPI docs
 
@@ -182,7 +182,7 @@ just openapi
 just openapi-check
 ```
 
-The generator derives REST-capable actions from `ACTION_SPECS` and excludes MCP-only actions.
+The generator derives REST-capable actions from `OPERATION_SPECS` and records MCP-only operations separately.
 
 ### Reference docs
 

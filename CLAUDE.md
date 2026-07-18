@@ -136,7 +136,7 @@ The help map is manual. If a new action lacks a `src/mcp/help.rs` topic, live
 | Policy | When | Effect |
 |---|---|---|
 | `AuthPolicy::LoopbackDev` | loopback bind or loopback no-auth | No auth middleware; scopes bypassed. |
-| `AuthPolicy::TrustedGatewayUnscoped` | `SYNAPSE_NOAUTH=true` on a non-loopback trusted gateway deployment | No local auth middleware; scopes bypassed because the gateway owns authz. |
+| `AuthPolicy::TrustedGatewayUnscoped` | `SYNAPSE_NOAUTH=true` on a gateway-isolated non-loopback deployment | Gateway owns auth/authz; local scopes bypassed. |
 | `AuthPolicy::Mounted { auth_state: None }` | default non-loopback bearer mode | Static bearer token required. |
 | `AuthPolicy::Mounted { auth_state: Some(_) }` | `SYNAPSE_MCP_AUTH_MODE=oauth` | Google OAuth plus RS256 JWT issuance. |
 
@@ -156,9 +156,9 @@ that override on non-loopback binds.
 | `SYNAPSE_MCP_PORT` | `40080` | HTTP bind port. |
 | `SYNAPSE_MCP_SERVER_NAME` | `synapse2` | MCP server name. |
 | `SYNAPSE_MCP_NO_AUTH` | `false` | Disable auth for loopback dev only. |
-| `SYNAPSE_NOAUTH` | `false` | Trusted gateway no-auth mode. |
+| `SYNAPSE_NOAUTH` | `false` | Trusted gateway mode; upstream owns auth/authz and must be the only network peer. |
 | `SYNAPSE_MCP_ALLOW_DESTRUCTIVE` | `false` | Skip destructive confirmation prompts; loopback only. |
-| `SYNAPSE_MCP_MAX_CONCURRENCY` | `50` | Global concurrency cap on `/mcp` and `/v1/synapse2`; excess requests queued. `0` = disable. `/health`/`/status` exempt. |
+| `SYNAPSE_MCP_MAX_CONCURRENCY` | `50` | Global concurrency cap on `/mcp` and `/v1/synapse2`; excess requests receive HTTP 429 with `Retry-After`. `0` = disable. `/health`/`/ready`/`/status` exempt. |
 | `SYNAPSE_MCP_TOKEN` | unset | Static bearer token. |
 | `SYNAPSE_MCP_ALLOWED_HOSTS` | unset | Extra accepted Host header values. |
 | `SYNAPSE_MCP_ALLOWED_ORIGINS` | unset | Extra CORS origins. |

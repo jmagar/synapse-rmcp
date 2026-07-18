@@ -62,7 +62,7 @@ symlink-docs:
 WARN  src/mcp/tools.rs  line 42: potential business logic in MCP shim
 WARN  src/cli.rs  line 87: potential business logic in CLI shim
 ERROR src/app/mod.rs: mod.rs files are banned
-ERROR src/mcp/tools.rs: action "new_action" in ACTION_SPECS missing from dispatch
+ERROR src/mcp/tools.rs: action "new_action" in OPERATION_SPECS missing from dispatch
 ERROR tests/tool_dispatch.rs: action "new_action" has no test
 ```
 

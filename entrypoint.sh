@@ -29,6 +29,11 @@ set -euo pipefail
 
 SERVICE_NAME="synapse"
 BINARY="/usr/local/bin/${SERVICE_NAME}"
+SYNAPSE_UID="${SYNAPSE_UID:-1000}"
+SYNAPSE_GID="${SYNAPSE_GID:-1000}"
+case "${SYNAPSE_UID}:${SYNAPSE_GID}" in
+  *[!0-9:]*|:*|*:) echo "ERROR: SYNAPSE_UID and SYNAPSE_GID must be numeric" >&2; exit 2 ;;
+esac
 
 # ── Data directory ─────────────────────────────────────────────────────────────
 # TEMPLATE: DATA_DIR is the container's persistent storage path. It is always
@@ -45,8 +50,8 @@ mkdir -p "${DATA_DIR}"
 # permits it. Some host bind mounts reject recursive chown even when UID 1000
 # already owns the directory, so keep startup tolerant and let the app's own
 # write checks surface real permission problems.
-if ! chown -R 1000:1000 "${DATA_DIR}" 2>/dev/null; then
-    echo "WARN: could not chown ${DATA_DIR} to 1000:1000; continuing" >&2
+if ! chown -R "${SYNAPSE_UID}:${SYNAPSE_GID}" "${DATA_DIR}" 2>/dev/null; then
+    echo "WARN: could not chown ${DATA_DIR} to ${SYNAPSE_UID}:${SYNAPSE_GID}; continuing" >&2
 fi
 
 # Restrict directory permissions when supported by the mount:
@@ -143,15 +148,15 @@ drop_exec() {
         exec "$@"
     fi
     if [ -n "${SOCK_GID}" ] && [ "${SOCK_GID}" != "0" ] && command -v setpriv >/dev/null 2>&1; then
-        exec setpriv --reuid 1000 --regid 1000 --groups "${SOCK_GID}" "$@"
+        exec setpriv --reuid "${SYNAPSE_UID}" --regid "${SYNAPSE_GID}" --groups "${SOCK_GID}" "$@"
     fi
-    exec gosu 1000:1000 "$@"
+    exec gosu "${SYNAPSE_UID}:${SYNAPSE_GID}" "$@"
 }
 
 # Passthrough: if the first argument is not a known subcommand (e.g. docker run ... bash),
 # exec it directly without prepending the binary.
 case "${1:-}" in
-  serve|mcp|greet|echo|status|watch|doctor|setup|help|--help|-h|--version|"")
+  serve|mcp|flux|scout|greet|echo|status|watch|doctor|setup|help|--help|-h|--version|"")
     drop_exec "${BINARY}" "$@"
     ;;
   *)

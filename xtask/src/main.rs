@@ -152,7 +152,10 @@ fn ci() -> Result<()> {
     println!("==> [7/7] cargo audit");
     // TEMPLATE: Remove if you don't want advisory audits in local CI.
     if command_exists("cargo-audit") {
-        run_cargo(&["audit"]).context("cargo audit found vulnerabilities")?;
+        // RUSTSEC-2023-0071 has no fixed release in the lab-auth RSA chain.
+        // Keep this aligned with deny.toml's documented, dated exception.
+        run_cargo(&["audit", "--ignore", "RUSTSEC-2023-0071"])
+            .context("cargo audit found vulnerabilities")?;
     } else {
         eprintln!(
             "  (cargo-audit not installed — skipping; install with `cargo install cargo-audit`)"

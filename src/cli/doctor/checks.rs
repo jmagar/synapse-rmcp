@@ -177,14 +177,14 @@ pub fn check_port_available(host: &str, port: u16) -> DoctorCheck {
 /// report instead of aborting. No logic changes needed unless you add a new
 /// auth mode.
 pub fn check_auth_config(config: &Config) -> DoctorCheck {
-    match resolve_auth_policy_kind(config, config.mcp.trusted_gateway) {
+    match resolve_auth_policy_kind(config) {
         Ok(AuthPolicyKind::LoopbackDev) => {
             DoctorCheck::pass("auth", "Auth mode", "no-auth (loopback bind)")
         }
         Ok(AuthPolicyKind::TrustedGatewayUnscoped) => DoctorCheck::pass(
             "auth",
             "Auth mode",
-            "trusted gateway unscoped (SYNAPSE_NOAUTH=true — upstream handles auth and authz)",
+            "trusted gateway (SYNAPSE_NOAUTH=true; upstream owns auth/authz)",
         ),
         Ok(AuthPolicyKind::MountedOAuth) => {
             DoctorCheck::pass("auth", "Auth mode", "OAuth (Google)")
@@ -201,7 +201,7 @@ pub fn check_auth_config(config: &Config) -> DoctorCheck {
                  1. Bind to loopback:    SYNAPSE_MCP_HOST=127.0.0.1\n    \
                  2. Set a bearer token:  SYNAPSE_MCP_TOKEN=$(openssl rand -hex 32)\n    \
                  3. Enable OAuth:        SYNAPSE_MCP_AUTH_MODE=oauth\n    \
-                 4. Upstream gateway:    SYNAPSE_NOAUTH=true\n    \
+                 4. Trusted gateway:     SYNAPSE_NOAUTH=true (isolated gateway-only network)\n    \
                  TEMPLATE: Replace SYNAPSE_ prefix with your service prefix."
             ),
         ),

@@ -29,6 +29,26 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+
+fn apply_security_headers(response: &mut Response) {
+    use axum::http::{HeaderName, HeaderValue};
+    let headers = response.headers_mut();
+    headers.insert(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+}
+
 /// Returns `true` when the embedded `apps/web/out/index.html` is present.
 ///
 /// Used by `AppState::web_assets_enabled()` and the router to decide whether to wire
@@ -57,7 +77,7 @@ pub async fn serve_web_assets(request: Request<Body>) -> Response {
             if let Some(file) = WEB_ASSETS.get_file(candidate.as_str()) {
                 let content_type = guess_mime(candidate.as_str());
                 let cache_control = cache_control_for(candidate.as_str());
-                return (
+                let mut response = (
                     StatusCode::OK,
                     [
                         (header::CONTENT_TYPE, content_type),
@@ -66,12 +86,14 @@ pub async fn serve_web_assets(request: Request<Body>) -> Response {
                     file.contents().to_vec(),
                 )
                     .into_response();
+                apply_security_headers(&mut response);
+                return response;
             }
         }
 
         // SPA fallback — let client-side router handle the path
         if let Some(file) = WEB_ASSETS.get_file("index.html") {
-            return (
+            let mut response = (
                 StatusCode::OK,
                 [
                     (header::CONTENT_TYPE, "text/html; charset=utf-8"),
@@ -80,6 +102,8 @@ pub async fn serve_web_assets(request: Request<Body>) -> Response {
                 file.contents().to_vec(),
             )
                 .into_response();
+            apply_security_headers(&mut response);
+            return response;
         }
 
         StatusCode::NOT_FOUND.into_response()

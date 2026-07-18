@@ -148,6 +148,10 @@ openapi:
 openapi-check:
     python3 scripts/check-openapi.py --check
 
+# Reject stale template identities, ports, and duplicate action registries
+identity-contract-check:
+    python3 scripts/check-identity-contract.py
+
 # Validate scaffold intent JSON Schema and checked-in examples
 scaffold-contract-check:
     python3 scripts/check-scaffold-intent-contract.py

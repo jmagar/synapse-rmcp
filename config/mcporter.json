@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "example": {
-      "url": "http://localhost:3000/mcp",
+    "synapse2": {
+      "url": "http://localhost:40080/mcp",
       "transport": "http"
     }
   }

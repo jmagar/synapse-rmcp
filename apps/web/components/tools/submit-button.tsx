@@ -12,15 +12,17 @@ interface SubmitButtonProps {
   loading: boolean;
   label?: string;
   loadingLabel?: string;
+  disabled?: boolean;
 }
 
 export function SubmitButton({
   loading,
   label = "Run Action",
   loadingLabel = "Running…",
+  disabled = false,
 }: SubmitButtonProps) {
   return (
-    <Button type="submit" disabled={loading} variant={loading ? "neutral" : "aurora"}>
+    <Button type="submit" disabled={loading || disabled} variant={loading ? "neutral" : "aurora"}>
       {loading ? loadingLabel : label}
     </Button>
   );

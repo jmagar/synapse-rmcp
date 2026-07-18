@@ -23,6 +23,7 @@ fn portable_scripts_are_executable_and_documented() {
         "scripts/pre-release-check.sh",
         "scripts/test-template-features.sh",
         "scripts/check-schema-docs.py",
+        "scripts/check-identity-contract.py",
         "scripts/check-coupled-files.sh",
     ] {
         let metadata = fs::metadata(path).unwrap_or_else(|err| panic!("{path}: {err}"));
@@ -54,6 +55,7 @@ fn justfile_exposes_ported_automation_recipes() {
         "file-size-check:",
         "schema-docs:",
         "schema-docs-check:",
+        "identity-contract-check:",
         "template-features:",
         "template-check:",
         "test-cov:",

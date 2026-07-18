@@ -216,10 +216,12 @@ where
         }
     }
 
-    // Step 3: Stop the container (idempotent — if already stopped, ignore error).
-    let _ = client
+    // Step 3: Stop the container. Docker treats stopping an already-stopped
+    // container as idempotent; every reported error is therefore unexpected
+    // and must abort before removal destroys the original container.
+    client
         .container_action(container_id, ContainerAction::Stop)
-        .await;
+        .await?;
 
     // Step 4: Remove the container (keep anonymous volumes handled by HostConfig).
     client

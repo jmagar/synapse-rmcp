@@ -22,6 +22,7 @@ Synapse2 exposes fast, redacted status surfaces for humans, agents, and deployme
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /health` | Public | Fast liveness + upstream connectivity. |
+| `GET /ready` | Public | Bounded host-topology readiness. |
 | `GET /status` | Public | Local redacted runtime metadata. |
 | `GET /metrics` | Bearer | Prometheus-compatible metrics (optional). |
 | `/mcp` | Auth policy | MCP Streamable HTTP endpoint. |

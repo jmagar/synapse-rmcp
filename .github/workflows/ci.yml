@@ -40,9 +40,10 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install Rust (stable with rustfmt)
+      - name: Install Rust 1.90 with rustfmt
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
+          toolchain: 1.90.0
           components: rustfmt
 
       - name: cargo fmt --check
@@ -56,9 +57,10 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install Rust (stable with clippy)
+      - name: Install Rust 1.90 with clippy
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
+          toolchain: 1.90.0
           components: clippy
 
       # Cache Cargo registry and build artifacts between runs.
@@ -84,8 +86,10 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install Rust (stable)
+      - name: Install Rust 1.90
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.90.0
 
       # TEMPLATE: Change cache key prefix from "rmcp-template" to your repo name.
       - name: Cache Cargo
@@ -103,6 +107,98 @@ jobs:
 
       - name: cargo nextest run --profile ci
         run: cargo nextest run --profile ci
+
+  coverage:
+    name: Coverage (65% lines)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust 1.90
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.90.0
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@95cc2373c3f00275e315c306e56fef1c7a8854c0 # cargo-llvm-cov
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Enforce line coverage floor
+        run: cargo llvm-cov --locked --workspace --all-features --fail-under-lines 65
+
+  live-integration:
+    name: Live JSON-RPC + SSH
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust 1.90
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.90.0
+
+      - name: Configure disposable localhost SSH fixture
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+          sudo ssh-keygen -A
+          ssh-keygen -q -t ed25519 -N '' -f "$RUNNER_TEMP/id_ed25519"
+          # A leading `!` in the shadow entry makes OpenSSH reject the account
+          # before public-key auth when UsePAM is disabled. `*` keeps password
+          # login impossible while allowing the disposable key below.
+          sudo useradd --create-home --shell /bin/bash --password '*' synapse-ci
+          sudo install -d -m 700 -o synapse-ci -g synapse-ci /home/synapse-ci/.ssh
+          sudo install -m 600 -o synapse-ci -g synapse-ci \
+            "$RUNNER_TEMP/id_ed25519.pub" /home/synapse-ci/.ssh/authorized_keys
+          chmod 600 "$RUNNER_TEMP/id_ed25519"
+          cat >"$RUNNER_TEMP/sshd_config" <<EOF
+          Port 2222
+          ListenAddress 127.0.0.1
+          HostKey /etc/ssh/ssh_host_ed25519_key
+          AuthorizedKeysFile .ssh/authorized_keys
+          PasswordAuthentication no
+          PubkeyAuthentication yes
+          StrictModes yes
+          UsePAM no
+          AllowUsers synapse-ci
+          EOF
+          sudo mkdir -p /run/sshd
+          sudo /usr/sbin/sshd -f "$RUNNER_TEMP/sshd_config" -E "$RUNNER_TEMP/sshd.log"
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          ssh-keyscan -p 2222 127.0.0.1 >>"$HOME/.ssh/known_hosts" 2>/dev/null
+          if ! ssh -o BatchMode=yes -i "$RUNNER_TEMP/id_ed25519" -p 2222 \
+            synapse-ci@127.0.0.1 true; then
+            sudo cat "$RUNNER_TEMP/sshd.log"
+            exit 1
+          fi
+          printf '%s\n' 'synapse-live-ssh-ok' >/tmp/synapse-ci-fixture
+
+      - name: Exercise SSH pool against the fixture
+        env:
+          SYNAPSE_TEST_SSH_REQUIRED: "1"
+          SYNAPSE_TEST_SSH_HOST: 127.0.0.1
+          SYNAPSE_TEST_SSH_PORT: "2222"
+          SYNAPSE_TEST_SSH_USER: synapse-ci
+          SYNAPSE_TEST_SSH_KEY: ${{ runner.temp }}/id_ed25519
+        run: cargo test --locked --test ssh_pool
+
+      - name: Exercise live MCP JSON-RPC through SSH
+        shell: bash
+        env:
+          SYNAPSE_MCP_NO_AUTH: "true"
+          SYNAPSE_HOSTS_CONFIG: >-
+            [{"name":"ci-ssh","host":"127.0.0.1","protocol":"ssh","sshUser":"synapse-ci","sshKeyPath":"${{ runner.temp }}/id_ed25519","sshPort":2222,"scoutReadRoots":["/tmp"]}]
+        run: |
+          cargo build --locked
+          target/debug/synapse serve mcp >"$RUNNER_TEMP/synapse.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          bash scripts/test-live-jsonrpc.sh
 
   # ── web: pnpm install, lint, audit, static build ─────────────────────────────
   web:
@@ -129,6 +225,9 @@ jobs:
 
       - name: pnpm typecheck
         run: pnpm typecheck
+
+      - name: pnpm test
+        run: pnpm test
 
       - name: pnpm build
         run: pnpm build
@@ -159,8 +258,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Rust (stable)
+      - name: Install Rust 1.90
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: 1.90.0
 
       - name: Check PATTERNS.md contracts
         run: cargo xtask patterns
@@ -179,6 +280,9 @@ jobs:
 
       - name: Check OpenAPI docs
         run: python3 scripts/check-openapi.py --check
+
+      - name: Check identity and operation registry contract
+        run: python3 scripts/check-identity-contract.py
 
       - name: Check scaffold intent contract
         run: python3 scripts/check-scaffold-intent-contract.py
@@ -209,6 +313,14 @@ jobs:
           command: check
           arguments: --all-features
 
+      - name: Install cargo-deny for exception guard
+        uses: taiki-e/install-action@95cc2373c3f00275e315c306e56fef1c7a8854c0
+        with:
+          tool: cargo-deny
+
+      - name: Enforce time-bounded yanked exceptions
+        run: python3 scripts/check-yanked-exceptions.py
+
   # ── gitleaks: secret scanning ─────────────────────────────────────────────────
   gitleaks:
     name: Secret Scan
@@ -231,8 +343,8 @@ jobs:
     name: npm launcher
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - name: Test npm launcher
@@ -241,3 +353,31 @@ jobs:
         run: npm run check --prefix packages/synapse-rmcp
       - name: Dry-run npm package
         run: npm pack --dry-run --json ./packages/synapse-rmcp
+
+  container:
+    name: Container smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Resolve production Compose
+        env:
+          DOCKER_GID: "999"
+        run: docker compose -f docker-compose.prod.yml config --quiet
+      - name: Build deployable image
+        run: docker build -f config/Dockerfile -t synapse2:ci .
+      - name: Smoke liveness
+        run: |
+          docker run -d --rm --name synapse2-ci -p 127.0.0.1:40080:40080 \
+            -e SYNAPSE_MCP_HOST=0.0.0.0 \
+            -e SYNAPSE_MCP_TOKEN=ci-smoke-token-with-sufficient-length synapse2:ci
+          trap 'docker logs synapse2-ci; docker stop synapse2-ci >/dev/null' EXIT
+          for _attempt in {1..30}; do
+            curl -fsS http://127.0.0.1:40080/health && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Smoke container CLI entrypoint
+        run: |
+          docker run --rm synapse2:ci flux --help >/dev/null
+          docker run --rm synapse2:ci scout --help >/dev/null

@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 
 interface ParamInputProps {
   id: string;
-  type?: "text" | "number" | "checkbox" | "string-list";
+  type?: "text" | "number" | "checkbox" | "string-list" | "select";
+  options?: readonly string[];
   placeholder?: string;
   value: string;
   onChange: (value: string) => void;
@@ -25,6 +26,7 @@ export function ParamInput({
   value,
   onChange,
   required,
+  options,
 }: ParamInputProps) {
   if (type === "checkbox") {
     return (
@@ -36,6 +38,26 @@ export function ParamInput({
         onChange={(e) => onChange(e.target.checked ? "true" : "")}
         className="h-4 w-4"
       />
+    );
+  }
+
+  if (type === "select") {
+    return (
+      <select
+        id={id}
+        value={value}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-10 w-full rounded-md border px-3 text-sm"
+        style={{ background: "var(--aurora-control-surface)" }}
+      >
+        <option value="">Select a target</option>
+        {options?.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
     );
   }
 

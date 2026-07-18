@@ -156,10 +156,11 @@ fn plugin_hook_standard_is_documented() {
     }
 }
 
-fn synapse2_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_synapse")
-        .or_else(|_| std::env::var("CARGO_BIN_EXE_synapse2"))
-        .unwrap_or_else(|_| "target/debug/synapse".to_string())
+fn synapse2_bin() -> &'static str {
+    // Cargo exposes integration-test binaries at compile time. Using a runtime
+    // lookup with a target/debug fallback is unreliable for alternate target
+    // directories such as cargo-llvm-cov's target/llvm-cov-target.
+    env!("CARGO_BIN_EXE_synapse")
 }
 
 fn setup_command(data_dir: &std::path::Path) -> Command {

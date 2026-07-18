@@ -5,13 +5,7 @@
 //! compose operations (up/down/restart/…) — that is B13, which consumes this
 //! module's [`ComposeDiscovery`] engine.
 //!
-//! Ported from synapse-mcp's three-file split
-//! (`compose-discovery.ts` + `compose-project-lister.ts` + `compose-cache.ts`).
-//! The TS split existed only to break a circular import; Rust has no such
-//! constraint, so the bead's architecture comment directs collapsing it to a
-//! single module here, reusing the generic [`crate::cache`] (B7).
-//!
-//! Design (locked decisions — see bead rmcp-template-3tt.12):
+//! Design:
 //!
 //! - **Discovery sources, then merge.** Two sources feed the project list:
 //!   1. `docker compose ls --format json` — authoritative for *running/known*
@@ -32,7 +26,7 @@
 //!   set up for loopback). Wiring local routing into the shared executor is a
 //!   merge-time concern (see B12 integration notes); B12 takes the executor as
 //!   an injected `Arc<dyn SshExecutor>` and does not assume a routing strategy.
-//! - **60s TTL cache, per host** (matches synapse-mcp), keyed by host name.
+//! - **60s TTL cache, per host**, keyed by complete host topology identity.
 //!   `refresh(host)` invalidates one host; `refresh(None)` invalidates all.
 //! - **Project name** comes from the compose file's top-level `name:` field,
 //!   else the parent directory name (matches `docker compose` behavior).
@@ -41,7 +35,10 @@
 //!   `symlink_metadata` check runs against the *local* FS and is meaningless
 //!   (and false-positive-prone) for remote search roots.
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -73,6 +70,34 @@ pub const MAX_SCAN_DEPTH: u32 = 3;
 
 /// Default discovery cache TTL (matches synapse-mcp's 60s).
 pub const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(60);
+
+/// Fixed, argv-only batch parser used to resolve every discovered compose name
+/// in one host round trip. It reads at most 64 KiB from each file.
+const COMPOSE_NAME_BATCH_SCRIPT: &str = r#"import json, sys
+results = {}
+for path in sys.argv[1:]:
+    name = None
+    try:
+        with open(path, 'r', encoding='utf-8', errors='replace') as handle:
+            content = handle.read(65536)
+        for line in content.splitlines():
+            if line[:1].isspace() or not line.startswith('name:'):
+                continue
+            value = line[5:].strip()
+            if value[:1] in ('\"', \"'\"):
+                quote = value[0]
+                end = value.find(quote, 1)
+                value = value[1:end] if end >= 0 else value[1:]
+            else:
+                value = value.split('#', 1)[0].strip()
+            name = value or None
+            break
+    except OSError:
+        pass
+    if name is not None:
+        results[path] = name
+print(json.dumps(results, separators=(',', ':')))
+"#;
 
 /// Where a discovered project's information came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -201,44 +226,6 @@ pub fn project_name_from_path(file_path: &str) -> String {
     parts[parts.len() - 2].to_string()
 }
 
-/// Extract a top-level `name:` value from compose file contents.
-///
-/// Anchored to start-of-line with zero indentation so it never matches
-/// `container_name:` or nested service keys. Strips surrounding quotes and
-/// trailing comments. Returns `None` when no top-level name is present.
-pub fn parse_compose_name(contents: &str) -> Option<String> {
-    for line in contents.lines() {
-        // Top-level keys have no leading whitespace.
-        if line.starts_with(char::is_whitespace) {
-            continue;
-        }
-        let trimmed_end = line.trim_end();
-        let Some(rest) = trimmed_end.strip_prefix("name:") else {
-            continue;
-        };
-        let value = rest.trim();
-        let value = if let Some(quote) = value.strip_prefix(['"', '\'']) {
-            // Quoted value: take everything up to the matching closing quote;
-            // anything after (e.g. a trailing comment) is discarded.
-            let close = if value.starts_with('"') { '"' } else { '\'' };
-            match quote.find(close) {
-                Some(end) => &quote[..end],
-                None => quote,
-            }
-        } else {
-            // Unquoted: a `#` begins a line comment.
-            match value.find('#') {
-                Some(idx) => value[..idx].trim(),
-                None => value,
-            }
-        };
-        if !value.is_empty() {
-            return Some(value.to_string());
-        }
-    }
-    None
-}
-
 /// The compose discovery engine: filesystem scan + `docker compose ls` lister +
 /// a per-host TTL cache of the merged project list.
 ///
@@ -246,18 +233,18 @@ pub fn parse_compose_name(contents: &str) -> Option<String> {
 /// service), so all callers share one cache. Construct once and wrap in `Arc`.
 pub struct ComposeDiscovery {
     ssh: Arc<dyn SshExecutor>,
-    /// Per-host cache of the merged project list, keyed by host name.
+    /// Cache keyed by complete topology/discovery identity and refresh generation.
     cache: MemoryCache<String, Vec<ComposeProject>>,
+    in_flight: dashmap::DashMap<String, Arc<tokio::sync::Mutex<()>>>,
+    refresh_all_generation: AtomicU64,
+    refresh_host_generations: dashmap::DashMap<String, u64>,
 }
 
 impl ComposeDiscovery {
     /// Build a discovery engine over the given SSH executor with the default
     /// 60s cache TTL.
     pub fn new(ssh: Arc<dyn SshExecutor>) -> Self {
-        Self {
-            ssh,
-            cache: MemoryCache::with_ttl(DEFAULT_CACHE_TTL),
-        }
+        Self::with_ttl(ssh, DEFAULT_CACHE_TTL)
     }
 
     /// Build a discovery engine with a custom cache TTL (per-host configurable
@@ -266,6 +253,9 @@ impl ComposeDiscovery {
         Self {
             ssh,
             cache: MemoryCache::with_ttl(ttl),
+            in_flight: dashmap::DashMap::new(),
+            refresh_all_generation: AtomicU64::new(0),
+            refresh_host_generations: dashmap::DashMap::new(),
         }
     }
 
@@ -275,21 +265,69 @@ impl ComposeDiscovery {
     /// Validation requirement: `flux compose list` returns projects from both
     /// the filesystem scan and active `docker compose ls`.
     pub async fn list(&self, host: &HostConfig) -> Result<Vec<ComposeProject>> {
-        if let Some(cached) = self.cache.get(&host.name) {
+        let generation = self.refresh_generation(&host.name);
+        let cache_key = compose_cache_key(host, generation);
+        if let Some(cached) = self.cache.get(&cache_key)
+            && self.refresh_generation(&host.name) == generation
+        {
             return Ok(cached);
         }
-        let merged = self.discover(host).await?;
-        self.cache.set(host.name.clone(), merged.clone());
-        Ok(merged)
+        let lock = self
+            .in_flight
+            .entry(cache_key.clone())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone();
+        let _guard = lock.lock().await;
+        let result = if let Some(cached) = self.cache.get(&cache_key)
+            && self.refresh_generation(&host.name) == generation
+        {
+            Ok(cached)
+        } else {
+            match self.discover(host).await {
+                Ok(merged) => {
+                    if self.refresh_generation(&host.name) == generation {
+                        self.cache.set(cache_key.clone(), merged.clone());
+                    }
+                    Ok(merged)
+                }
+                Err(error) => Err(error),
+            }
+        };
+        drop(_guard);
+        // Keep a key while callers are queued, then remove it once only the map
+        // and this function own the Arc. `remove_if` locks the shard while the
+        // strong-count predicate runs, so a racing lookup cannot be orphaned.
+        self.in_flight.remove_if(&cache_key, |_, current| {
+            Arc::ptr_eq(current, &lock) && Arc::strong_count(current) == 2
+        });
+        result
     }
 
     /// Invalidate the discovery cache. With a host name, clears only that host;
     /// with `None`, clears all hosts. The next `list()` re-scans.
     pub fn refresh(&self, host_name: Option<&str>) {
         match host_name {
-            Some(name) => self.cache.invalidate(&name.to_string()),
-            None => self.cache.invalidate_all(),
+            Some(name) => {
+                *self
+                    .refresh_host_generations
+                    .entry(name.to_owned())
+                    .or_insert(0) += 1;
+            }
+            None => {
+                self.refresh_all_generation.fetch_add(1, Ordering::AcqRel);
+                self.cache.invalidate_all();
+            }
         }
+    }
+
+    fn refresh_generation(&self, host_name: &str) -> (u64, u64) {
+        (
+            self.refresh_all_generation.load(Ordering::Acquire),
+            *self
+                .refresh_host_generations
+                .entry(host_name.to_owned())
+                .or_insert(0),
+        )
     }
 
     /// Run discovery (no cache): merge `docker compose ls` and filesystem scan.
@@ -328,25 +366,23 @@ impl ComposeDiscovery {
 
         let files = self.find_compose_files(host, &search_paths).await?;
 
-        let mut projects = Vec::with_capacity(files.len());
-        for file in files {
-            // Resolve the explicit `name:` field; fall back to directory name.
-            let name = match self.read_compose_name(host, &file).await {
-                Some(name) => name,
-                None => project_name_from_path(&file),
-            };
-            if name.is_empty() {
-                continue;
-            }
-            projects.push(ComposeProject {
-                name,
-                config_files: vec![file],
-                status: String::new(),
-                service_count: 0,
-                discovered_from: DiscoveredFrom::Scan,
-            });
-        }
-        Ok(projects)
+        let names = self.read_compose_names(host, &files).await;
+        Ok(files
+            .into_iter()
+            .filter_map(|file| {
+                let name = names
+                    .get(&file)
+                    .and_then(|name| name.clone())
+                    .unwrap_or_else(|| project_name_from_path(&file));
+                (!name.is_empty()).then(|| ComposeProject {
+                    name,
+                    config_files: vec![file],
+                    status: String::new(),
+                    service_count: 0,
+                    discovered_from: DiscoveredFrom::Scan,
+                })
+            })
+            .collect())
     }
 
     /// Build and run the `find` command, returning compose file paths.
@@ -383,16 +419,42 @@ impl ComposeDiscovery {
         Ok(parse_find_output(&output.stdout))
     }
 
-    /// Read a compose file and extract its top-level `name:`. Any failure
-    /// (missing file, read error, no name) yields `None` so the caller falls
-    /// back to the directory name.
-    async fn read_compose_name(&self, host: &HostConfig, file: &str) -> Option<String> {
-        let output = self.ssh.exec(host, "cat", &[file]).await.ok()?;
-        if !output.success() {
-            return None;
+    /// Resolve all explicit top-level compose names in one remote process.
+    async fn read_compose_names(
+        &self,
+        host: &HostConfig,
+        files: &[String],
+    ) -> std::collections::HashMap<String, Option<String>> {
+        if files.is_empty() {
+            return std::collections::HashMap::new();
         }
-        parse_compose_name(&output.stdout)
+        let mut args = Vec::with_capacity(files.len() + 2);
+        args.push("-c");
+        args.push(COMPOSE_NAME_BATCH_SCRIPT);
+        args.extend(files.iter().map(String::as_str));
+        let Ok(output) = self.ssh.exec(host, "python3", &args).await else {
+            return std::collections::HashMap::new();
+        };
+        if !output.success() {
+            return std::collections::HashMap::new();
+        }
+        serde_json::from_str(&output.stdout).unwrap_or_default()
     }
+
+    #[cfg(test)]
+    fn in_flight_len(&self) -> usize {
+        self.in_flight.len()
+    }
+}
+
+fn compose_cache_key(host: &HostConfig, generation: (u64, u64)) -> String {
+    let search_paths = effective_search_paths(host).join("\u{1f}");
+    format!(
+        "{}|compose-search={search_paths}|refresh={}:{}",
+        host.connection_key(),
+        generation.0,
+        generation.1
+    )
 }
 
 /// Parse `find -print` stdout into a deduplicated list of file paths.

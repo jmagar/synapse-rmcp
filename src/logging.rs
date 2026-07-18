@@ -43,16 +43,17 @@
 //! Logs are written to `{data_dir}/logs/{service}.log`.
 //! For the synapse2 service this resolves to `~/.synapse2/logs/synapse2.log`.
 //!
-//! The file is truncated (not rotated) when it exceeds 10MB. This keeps
-//! disk usage predictable and eliminates the complexity of log rotation.
+//! The file rotates at 10 MiB with three retained archives. This keeps
+//! disk usage predictable even for long-running processes.
 //! For production deployments that need persistent logs, configure a log
 //! aggregator (e.g. Loki, Datadog, CloudWatch) to ship from stderr instead.
 
 pub mod aurora;
 pub mod formatter;
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
@@ -116,17 +117,7 @@ pub fn init(data_dir: &Path, service_name: &str) -> Result<()> {
         .with_context(|| format!("failed to create log directory: {}", log_dir.display()))?;
 
     let log_path = log_dir.join(format!("{service_name}.log"));
-
-    // Truncate the log file if it has grown past the 10MB cap.
-    // See `truncate_log_if_needed()` for rationale.
-    truncate_log_if_needed(&log_path)?;
-
-    // Open the log file for appending (creates it if it doesn't exist).
-    let log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-        .with_context(|| format!("failed to open log file: {}", log_path.display()))?;
+    let log_writer = RotatingLogWriter::new(log_path.clone())?;
 
     let console_ansi = should_colorize();
     let use_json = json_format_requested();
@@ -161,7 +152,10 @@ pub fn init(data_dir: &Path, service_name: &str) -> Result<()> {
                 tracing_subscriber::fmt::layer()
                     .json()
                     .with_ansi(false)
-                    .with_writer(log_file),
+                    .with_writer({
+                        let writer = log_writer.clone();
+                        move || writer.clone()
+                    }),
             )
             .init();
     } else {
@@ -196,7 +190,10 @@ pub fn init(data_dir: &Path, service_name: &str) -> Result<()> {
                 tracing_subscriber::fmt::layer()
                     .json()
                     .with_ansi(false)
-                    .with_writer(log_file),
+                    .with_writer({
+                        let writer = log_writer.clone();
+                        move || writer.clone()
+                    }),
             )
             .init();
     }
@@ -218,46 +215,93 @@ pub fn init(data_dir: &Path, service_name: &str) -> Result<()> {
 /// # TEMPLATE: Why 10MB?
 ///
 /// 10MB is large enough to contain several hours of busy server logs at INFO
-/// level, but small enough that disk pressure is never a concern. The file is
-/// truncated (not rotated), so disk usage is bounded at exactly one file.
+/// level. Three archives retain recent diagnostics while bounding total usage.
 ///
 /// If you need longer retention, configure log shipping to an external system
 /// (Loki, Datadog, etc.) and keep this cap. The file is for local debugging.
 const LOG_FILE_MAX_BYTES: u64 = 10 * 1024 * 1024; // 10 MiB
+const LOG_FILE_RETENTION: usize = 3;
 
-/// Truncate the log file to zero if it exceeds [`LOG_FILE_MAX_BYTES`].
-///
-/// # TEMPLATE: Truncation vs rotation
-///
-/// Traditional log rotation creates `service.log.1`, `service.log.2`, etc.
-/// We truncate instead because:
-/// 1. Simpler — no need to manage multiple files or `logrotate` config
-/// 2. Predictable — disk usage is always ≤ 10MB, never grows unboundedly
-/// 3. Safe for agents — agents reading the log file always find a single file
-///
-/// When the file is truncated, the server logs a WARN message so the operator
-/// knows why the log history starts from the current process.
-fn truncate_log_if_needed(path: &std::path::PathBuf) -> Result<()> {
-    if !path.exists() {
-        return Ok(());
+struct RotatingLogState {
+    path: std::path::PathBuf,
+    file: Option<std::fs::File>,
+    size: u64,
+}
+
+#[derive(Clone)]
+struct RotatingLogWriter(Arc<Mutex<RotatingLogState>>);
+
+impl RotatingLogWriter {
+    fn new(path: std::path::PathBuf) -> Result<Self> {
+        let size = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .with_context(|| format!("failed to open log file: {}", path.display()))?;
+        Ok(Self(Arc::new(Mutex::new(RotatingLogState {
+            path,
+            file: Some(file),
+            size,
+        }))))
+    }
+}
+
+impl Write for RotatingLogWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut state = self
+            .0
+            .lock()
+            .map_err(|_| std::io::Error::other("log lock poisoned"))?;
+        if state.size.saturating_add(buf.len() as u64) > LOG_FILE_MAX_BYTES {
+            rotate_log(&mut state)?;
+        }
+        let written = state
+            .file
+            .as_mut()
+            .expect("rotating log file is open")
+            .write(buf)?;
+        state.size = state.size.saturating_add(written as u64);
+        Ok(written)
     }
 
-    let size = path
-        .metadata()
-        .with_context(|| format!("failed to stat log file: {}", path.display()))?
-        .len();
-
-    if size >= LOG_FILE_MAX_BYTES {
-        std::fs::write(path, b"")
-            .with_context(|| format!("failed to truncate log file: {}", path.display()))?;
-        // Note: we can't use tracing here (subscriber not yet initialised).
-        // Write to stderr directly so the truncation event is never lost.
-        eprintln!(
-            "WARN  log file exceeded {LOG_FILE_MAX_BYTES} bytes — truncated: {}",
-            path.display()
-        );
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0
+            .lock()
+            .map_err(|_| std::io::Error::other("log lock poisoned"))?
+            .file
+            .as_mut()
+            .expect("rotating log file is open")
+            .flush()
     }
+}
 
+fn rotate_log(state: &mut RotatingLogState) -> std::io::Result<()> {
+    if let Some(file) = state.file.take() {
+        file.sync_all()?;
+    }
+    let oldest = state
+        .path
+        .with_extension(format!("log.{LOG_FILE_RETENTION}"));
+    let _ = std::fs::remove_file(oldest);
+    for index in (1..LOG_FILE_RETENTION).rev() {
+        let from = state.path.with_extension(format!("log.{index}"));
+        let to = state.path.with_extension(format!("log.{}", index + 1));
+        if from.exists() {
+            std::fs::rename(from, to)?;
+        }
+    }
+    if state.path.exists() {
+        std::fs::rename(&state.path, state.path.with_extension("log.1"))?;
+    }
+    state.file = Some(
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&state.path)?,
+    );
+    state.size = 0;
+    eprintln!("WARN  log file reached {LOG_FILE_MAX_BYTES} bytes and was rotated");
     Ok(())
 }
 

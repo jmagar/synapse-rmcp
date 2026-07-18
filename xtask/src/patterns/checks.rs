@@ -14,6 +14,7 @@ const REQUIRED_PATTERN_FILES: &[&str] = &[
     "src/synapse.rs",
     "src/app.rs",
     "src/actions.rs",
+    "src/actions/operations.rs",
     "src/mcp.rs",
     "src/mcp/tools.rs",
     "src/mcp/schemas.rs",
@@ -93,6 +94,11 @@ pub(super) fn file_sizes(reporter: &mut PatternReporter) -> Result<()> {
 
     for line in output.lines().filter(|line| !line.trim().is_empty()) {
         let path = Path::new(line);
+        // `git ls-files` includes paths deleted in the worktree until they are
+        // staged. Review/repair workflows must evaluate the actual checkout.
+        if !path.exists() {
+            continue;
+        }
         if is_test_file(path) {
             continue;
         }
@@ -306,6 +312,7 @@ pub(super) fn tooling(reporter: &mut PatternReporter) {
     for script in [
         "scripts/check-schema-docs.py",
         "scripts/check-openapi.py",
+        "scripts/check-identity-contract.py",
         "scripts/check-scaffold-intent-contract.py",
         "scripts/validate-plugin-layout.sh",
         "scripts/test-template-features.sh",

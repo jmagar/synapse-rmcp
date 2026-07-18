@@ -24,7 +24,7 @@ pub(super) fn tool_definitions() -> &'static Vec<Value> {
 }
 
 fn build_tool_definitions() -> Vec<Value> {
-    vec![
+    let mut definitions = vec![
         json!({
             "name": "flux",
             "description": "Docker infrastructure management for synapse2. Supports docker (info/df/images/networks/volumes/pull/build/rmi/prune), container (list/inspect/logs/stats/top/search/start/stop/restart/pause/resume/pull/recreate/exec), host status, and compose (list/status/up/down/restart/recreate/logs/build/pull/refresh) actions across configured hosts. build/rmi/prune, compose down/restart/recreate, and container stop/recreate/exec are destructive and require confirmation.",
@@ -149,7 +149,47 @@ fn build_tool_definitions() -> Vec<Value> {
                 "additionalProperties": false
             }
         }),
-    ]
+    ];
+    definitions[0]["inputSchema"]["oneOf"] = Value::Array(flux_operation_branches());
+    definitions[1]["inputSchema"]["oneOf"] = Value::Array(scout_operation_branches());
+    definitions
+}
+
+fn operation_branch(action: &str, subaction: Option<&str>, required: &[&str]) -> Value {
+    let mut properties = serde_json::Map::new();
+    properties.insert("action".into(), json!({"const": action}));
+    let mut required_fields = vec!["action"];
+    if let Some(subaction) = subaction {
+        properties.insert("subaction".into(), json!({"const": subaction}));
+        required_fields.push("subaction");
+    }
+    required_fields.extend_from_slice(required);
+    json!({"properties": properties, "required": required_fields})
+}
+
+fn flux_operation_branches() -> Vec<Value> {
+    operation_branches(crate::actions::OperationTool::Flux)
+}
+
+fn scout_operation_branches() -> Vec<Value> {
+    operation_branches(crate::actions::OperationTool::Scout)
+}
+
+fn operation_branches(tool: crate::actions::OperationTool) -> Vec<Value> {
+    crate::actions::operations_for_tool(tool)
+        .map(|spec| {
+            let mut branch = operation_branch(spec.action, spec.subaction, spec.required_params);
+            if !spec.required_any.is_empty() {
+                branch["oneOf"] = Value::Array(
+                    spec.required_any
+                        .iter()
+                        .map(|fields| json!({"required": fields}))
+                        .collect(),
+                );
+            }
+            branch
+        })
+        .collect()
 }
 
 #[cfg(test)]

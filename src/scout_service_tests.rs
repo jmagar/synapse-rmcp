@@ -62,7 +62,7 @@ async fn test_scout_exec_resolves_through_injected_repo() {
     // Unknown host comes from the injected repo (only "stub-node" exists), so
     // resolving "missing" must fail with the repo-driven error.
     let error = scout
-        .exec("missing", None, "echo", &[], &ApproveConfirmer)
+        .exec("missing", None, "echo", &[], None, &ApproveConfirmer)
         .await
         .expect_err("unknown host should be rejected via injected repo");
     assert!(error.to_string().contains("unknown host"));

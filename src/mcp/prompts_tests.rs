@@ -20,6 +20,11 @@ fn get_prompt_quick_start_returns_message() {
         !result.messages.is_empty(),
         "prompt should have at least one message"
     );
+    let rmcp::model::PromptMessageContent::Text { text } = &result.messages[0].content else {
+        panic!("expected text prompt");
+    };
+    assert!(text.contains("\"subaction\":\"status\""));
+    assert!(text.contains("\"host\":\"<returned-host>\""));
 }
 
 #[test]

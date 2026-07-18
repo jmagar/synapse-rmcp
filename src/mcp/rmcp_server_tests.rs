@@ -9,8 +9,8 @@ use crate::{
 };
 
 use super::{
-    internal_tool_error_message, parse_mcp_action, reject_unknown_action_before_scope,
-    rmcp_tool_definitions, rmcp_tool_from_json, scope_satisfied, tool_result_from_json,
+    parse_mcp_action, reject_unknown_action_before_scope, rmcp_tool_definitions,
+    rmcp_tool_from_json, scope_satisfied, tool_result_from_json,
 };
 
 fn scopes(s: &[&str]) -> Vec<String> {
@@ -189,13 +189,6 @@ fn unknown_action_is_rejected_as_validation_before_scope() {
 }
 
 #[test]
-fn internal_tool_errors_include_stable_kind() {
-    let message = internal_tool_error_message("docker");
-    assert!(message.contains("kind=execution_error"));
-    assert!(message.contains("action='docker'"));
-}
-
-#[test]
 fn rmcp_tool_definitions_include_flux_and_scout_tools() {
     let tools = rmcp_tool_definitions().expect("tool definitions should convert");
     let names: Vec<&str> = tools.iter().map(|tool| tool.name.as_ref()).collect();
@@ -205,6 +198,32 @@ fn rmcp_tool_definitions_include_flux_and_scout_tools() {
         tools
             .iter()
             .all(|tool| tool.input_schema.contains_key("properties"))
+    );
+    for tool in tools {
+        let annotations = tool
+            .annotations
+            .expect("mixed tools need conservative annotations");
+        assert_eq!(annotations.read_only_hint, Some(false));
+        assert_eq!(annotations.destructive_hint, Some(true));
+        assert_eq!(annotations.open_world_hint, Some(true));
+    }
+}
+
+#[test]
+fn operational_errors_are_caller_visible_tool_results() {
+    let result = super::tool_error_result("flux.docker.info", "unknown host: ghost");
+    assert_eq!(result.is_error, Some(true));
+    assert_eq!(
+        result.structured_content.as_ref().unwrap()["error"]["kind"],
+        "execution_error"
+    );
+    assert!(
+        result.content[0]
+            .raw
+            .as_text()
+            .unwrap()
+            .text
+            .contains("unknown host")
     );
 }
 

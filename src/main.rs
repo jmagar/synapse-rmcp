@@ -127,6 +127,8 @@ async fn serve_mcp() -> Result<()> {
     );
 
     let bind = state.config.bind_addr();
+    let service = state.service.clone();
+    let eviction = service.start_runtime();
     let app = server::router(state).layer(tower_http::trace::TraceLayer::new_for_http());
     let listener = tokio::net::TcpListener::bind(&bind).await?;
     info!(bind = %bind, "MCP HTTP server listening");
@@ -134,6 +136,9 @@ async fn serve_mcp() -> Result<()> {
     axum::serve(listener, app.into_make_service())
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+    eviction.abort();
+    let _ = eviction.await;
+    service.shutdown().await;
     Ok(())
 }
 
@@ -145,13 +150,18 @@ async fn serve_mcp() -> Result<()> {
 async fn serve_stdio_mcp() -> Result<()> {
     let config = Config::load()?;
     let service = SynapseService::new();
+    let eviction = service.start_runtime();
     let state = AppState {
         config: config.mcp,
         auth_policy: AuthPolicy::LoopbackDev, // stdio = trusted local transport
-        service,
+        service: service.clone(),
+        activity: Default::default(),
     };
     let svc = mcp::rmcp_server(state).serve(stdio()).await?;
     svc.waiting().await?;
+    eviction.abort();
+    let _ = eviction.await;
+    service.shutdown().await;
     Ok(())
 }
 
@@ -172,7 +182,7 @@ async fn run_cli(args: Vec<String>) -> Result<()> {
         Some(cli::Command::Setup(command)) => cli::run_setup(&config, command).await,
         Some(cmd) => cli::run(cmd).await,
         None => {
-            eprintln!("Unknown command. Run `synapse2 --help` for usage.");
+            eprintln!("Unknown command. Run `synapse --help` for usage.");
             cli::print_top_level_help_stderr();
             std::process::exit(1);
         }
@@ -219,51 +229,18 @@ async fn build_state(config: Config) -> Result<AppState> {
         config: config.mcp,
         auth_policy,
         service,
+        activity: Default::default(),
     })
 }
 
 async fn build_auth_policy(config: &Config) -> Result<AuthPolicy> {
-    match resolve_auth_policy_kind(config, config.mcp.trusted_gateway)? {
+    match resolve_auth_policy_kind(config)? {
         AuthPolicyKind::LoopbackDev => Ok(AuthPolicy::LoopbackDev),
         AuthPolicyKind::TrustedGatewayUnscoped => {
-            // SECURITY (S-H1): TrustedGatewayUnscoped grants fully-unauthenticated
-            // access to all endpoints — including container exec, scout exec, and
-            // lifecycle operations — with no bearer token, no OAuth, and no proof
-            // that a gateway is actually present. ANY peer that can reach
-            // {}:{} at the network level has complete fleet control.
-            //
-            // Safe only when this port is reachable exclusively by a trusted reverse
-            // proxy (e.g., Labby gateway, SWAG) that enforces its own authentication
-            // and authorization BEFORE forwarding to synapse2. Isolation MUST be
-            // enforced at the network/Docker-network layer (e.g., a Docker internal
-            // network where only the gateway container has access to this port).
-            //
-            // To further restrict which source IPs may reach this server without auth,
-            // set SYNAPSE_TRUSTED_GATEWAY_IP to a comma-separated list of allowed
-            // peer CIDRs/IPs and enforce it at the firewall or reverse-proxy layer.
-            // synapse2 itself does not enforce this IP allowlist at present — it is
-            // a documentation and ops-contract signal only.
-            //
-            // Mitigation checklist:
-            //   1. Run synapse2 on an isolated Docker network; the gateway is the
-            //      only container with access.
-            //   2. Firewall :40080 from all sources except the gateway.
-            //   3. Set SYNAPSE_TRUSTED_GATEWAY_IP to the gateway's IP for ops
-            //      documentation (not yet enforced in-process; see TODO below).
-            //   4. Rotate credentials if this port was ever inadvertently exposed.
             tracing::warn!(
                 bind = %config.mcp.bind_addr(),
-                "SECURITY: TrustedGatewayUnscoped mode active (SYNAPSE_NOAUTH=true). \
-                 All requests on {} are accepted without authentication. \
-                 This is ONLY safe when a trusted reverse proxy (e.g., Labby) is the \
-                 sole network peer that can reach this port. \
-                 Ensure this port is on an isolated Docker network or firewall-restricted. \
-                 Set SYNAPSE_TRUSTED_GATEWAY_IP to document the expected gateway IP.",
-                config.mcp.bind_addr(),
+                "TrustedGatewayUnscoped active: SYNAPSE_NOAUTH=true delegates all auth/authz to the upstream gateway"
             );
-            // TODO(S-H1): enforce SYNAPSE_TRUSTED_GATEWAY_IP as a peer-addr allowlist
-            // once axum ConnectInfo is threaded through to the handler layer, so that
-            // connections from unexpected source IPs are refused at the TCP level.
             Ok(AuthPolicy::TrustedGatewayUnscoped)
         }
         AuthPolicyKind::MountedBearer => Ok(AuthPolicy::Mounted { auth_state: None }),

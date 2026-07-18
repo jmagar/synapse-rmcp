@@ -188,11 +188,9 @@ impl SshPool {
         }
     }
 
-    /// Pool key: stable per host identity (name disambiguates same-hostname
-    /// entries; port distinguishes alternate ports).
+    /// Pool key includes every transport-affecting topology and credential field.
     fn key(host: &HostConfig) -> String {
-        let port = host.ssh_port.or(host.port).unwrap_or(22);
-        format!("{}:{port}", host.name)
+        host.connection_key()
     }
 
     /// Hand out the shared session for `host`, connecting (and caching) on
@@ -374,19 +372,44 @@ impl SshExecutor for SshPool {
         for arg in args {
             command.arg(*arg);
         }
+        command
+            .stdout(openssh::Stdio::piped())
+            .stderr(openssh::Stdio::piped());
 
         match crate::runtime_budget::with_operation_deadline(
             &format!("ssh command `{program}` on {}", host.name),
-            command.output(),
+            async {
+                let mut child = command.spawn().await?;
+                let stdout = child
+                    .stdout()
+                    .take()
+                    .ok_or_else(|| anyhow!("SSH stdout pipe unavailable"))?;
+                let stderr = child
+                    .stderr()
+                    .take()
+                    .ok_or_else(|| anyhow!("SSH stderr pipe unavailable"))?;
+                let (stdout, stderr) = tokio::try_join!(
+                    crate::runtime_budget::drain_bounded(
+                        stdout,
+                        crate::runtime_budget::SERVICE_TEXT_FIELD_BYTE_CAP,
+                    ),
+                    crate::runtime_budget::drain_bounded(
+                        stderr,
+                        crate::runtime_budget::SERVICE_TEXT_FIELD_BYTE_CAP,
+                    ),
+                )?;
+                let status = child.wait().await?;
+                Ok::<_, anyhow::Error>((stdout, stderr, status))
+            },
         )
         .await
         {
-            Ok(output) => {
+            Ok((stdout, stderr, status)) => {
                 pooled.touch();
                 Ok(CommandOutput {
-                    stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-                    exit_code: output.status.code(),
+                    stdout,
+                    stderr,
+                    exit_code: status.code(),
                 })
             }
             Err(e) => {

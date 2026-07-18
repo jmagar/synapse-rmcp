@@ -1,0 +1,249 @@
+{
+  "source": "scripts/check-openapi.py",
+  "action_metadata": "src/actions/operations.rs",
+  "rest_actions": [
+    "help",
+    "flux.docker.info",
+    "flux.docker.df",
+    "flux.docker.images",
+    "flux.docker.networks",
+    "flux.docker.volumes",
+    "flux.docker.pull",
+    "flux.docker.build",
+    "flux.docker.rmi",
+    "flux.docker.prune",
+    "flux.container.list",
+    "scout.nodes",
+    "scout.peek",
+    "scout.exec"
+  ],
+  "rest_operations": [
+    {
+      "name": "help",
+      "scope": "public",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": []
+    },
+    {
+      "name": "flux.docker.info",
+      "scope": "synapse:read",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": []
+    },
+    {
+      "name": "flux.docker.df",
+      "scope": "synapse:read",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": []
+    },
+    {
+      "name": "flux.docker.images",
+      "scope": "synapse:read",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": []
+    },
+    {
+      "name": "flux.docker.networks",
+      "scope": "synapse:read",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": []
+    },
+    {
+      "name": "flux.docker.volumes",
+      "scope": "synapse:read",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": []
+    },
+    {
+      "name": "flux.docker.pull",
+      "scope": "synapse:write",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": [
+        "host",
+        "image"
+      ]
+    },
+    {
+      "name": "flux.docker.build",
+      "scope": "synapse:write",
+      "transport": "Rest",
+      "destructive": true,
+      "required_params": [
+        "host",
+        "context",
+        "tag"
+      ]
+    },
+    {
+      "name": "flux.docker.rmi",
+      "scope": "synapse:write",
+      "transport": "Rest",
+      "destructive": true,
+      "required_params": [
+        "host",
+        "image",
+        "force"
+      ]
+    },
+    {
+      "name": "flux.docker.prune",
+      "scope": "synapse:write",
+      "transport": "Rest",
+      "destructive": true,
+      "required_params": [
+        "host",
+        "prune_target",
+        "force"
+      ]
+    },
+    {
+      "name": "flux.container.list",
+      "scope": "synapse:read",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": []
+    },
+    {
+      "name": "scout.nodes",
+      "scope": "synapse:read",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": []
+    },
+    {
+      "name": "scout.peek",
+      "scope": "synapse:read",
+      "transport": "Rest",
+      "destructive": false,
+      "required_params": [
+        "host",
+        "path"
+      ]
+    },
+    {
+      "name": "scout.exec",
+      "scope": "synapse:write",
+      "transport": "Rest",
+      "destructive": true,
+      "required_params": [
+        "host",
+        "command"
+      ]
+    }
+  ],
+  "mcp_actions": [
+    "help",
+    "flux.docker.info",
+    "flux.docker.df",
+    "flux.docker.images",
+    "flux.docker.networks",
+    "flux.docker.volumes",
+    "flux.docker.pull",
+    "flux.docker.build",
+    "flux.docker.rmi",
+    "flux.docker.prune",
+    "flux.container.list",
+    "flux.container.inspect",
+    "flux.container.logs",
+    "flux.container.stats",
+    "flux.container.top",
+    "flux.container.search",
+    "flux.container.start",
+    "flux.container.stop",
+    "flux.container.restart",
+    "flux.container.pause",
+    "flux.container.resume",
+    "flux.container.pull",
+    "flux.container.recreate",
+    "flux.container.exec",
+    "flux.host.status",
+    "flux.host.info",
+    "flux.host.uptime",
+    "flux.host.resources",
+    "flux.host.services",
+    "flux.host.network",
+    "flux.host.mounts",
+    "flux.host.ports",
+    "flux.host.doctor",
+    "flux.compose.list",
+    "flux.compose.status",
+    "flux.compose.up",
+    "flux.compose.down",
+    "flux.compose.restart",
+    "flux.compose.recreate",
+    "flux.compose.logs",
+    "flux.compose.build",
+    "flux.compose.pull",
+    "flux.compose.refresh",
+    "scout.nodes",
+    "scout.peek",
+    "scout.find",
+    "scout.ps",
+    "scout.df",
+    "scout.delta",
+    "scout.exec",
+    "scout.emit",
+    "scout.beam",
+    "scout.zfs.pools",
+    "scout.zfs.datasets",
+    "scout.zfs.snapshots",
+    "scout.logs.syslog",
+    "scout.logs.journal",
+    "scout.logs.dmesg",
+    "scout.logs.auth"
+  ],
+  "mcp_only_actions": [
+    "flux.container.inspect",
+    "flux.container.logs",
+    "flux.container.stats",
+    "flux.container.top",
+    "flux.container.search",
+    "flux.container.start",
+    "flux.container.stop",
+    "flux.container.restart",
+    "flux.container.pause",
+    "flux.container.resume",
+    "flux.container.pull",
+    "flux.container.recreate",
+    "flux.container.exec",
+    "flux.host.status",
+    "flux.host.info",
+    "flux.host.uptime",
+    "flux.host.resources",
+    "flux.host.services",
+    "flux.host.network",
+    "flux.host.mounts",
+    "flux.host.ports",
+    "flux.host.doctor",
+    "flux.compose.list",
+    "flux.compose.status",
+    "flux.compose.up",
+    "flux.compose.down",
+    "flux.compose.restart",
+    "flux.compose.recreate",
+    "flux.compose.logs",
+    "flux.compose.build",
+    "flux.compose.pull",
+    "flux.compose.refresh",
+    "scout.find",
+    "scout.ps",
+    "scout.df",
+    "scout.delta",
+    "scout.emit",
+    "scout.beam",
+    "scout.zfs.pools",
+    "scout.zfs.datasets",
+    "scout.zfs.snapshots",
+    "scout.logs.syslog",
+    "scout.logs.journal",
+    "scout.logs.dmesg",
+    "scout.logs.auth"
+  ]
+}

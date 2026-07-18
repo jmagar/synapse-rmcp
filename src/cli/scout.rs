@@ -25,10 +25,15 @@ pub(super) fn parse_scout(args: &[String]) -> Result<Command> {
             response_format: super::parse_output_format_flag(rest, "scout nodes")?,
         }),
         [action, rest @ ..] if action == "peek" => {
+            super::validate_named_args(
+                rest,
+                &["--depth", "--host", "--path", "--response-format"],
+                &["--tree"],
+            )?;
             let tree = rest.iter().any(|a| a == "--tree");
             let value_args: Vec<String> = rest.iter().filter(|a| *a != "--tree").cloned().collect();
-            let depth = super::parse_optional_named_value(&value_args, "--depth")?
-                .map(|v| v.parse::<u8>().unwrap_or(3).clamp(1, 10))
+            let depth = super::parse_optional_number::<u8>(&value_args, "--depth")?
+                .map(|v| v.clamp(1, 10))
                 .unwrap_or(3);
             Ok(Command::ScoutPeek {
                 response_format: super::parse_optional_response_format(&value_args)?,
@@ -39,10 +44,21 @@ pub(super) fn parse_scout(args: &[String]) -> Result<Command> {
             })
         }
         [action, rest @ ..] if action == "find" => {
-            let depth = super::parse_optional_named_value(rest, "--depth")?
-                .map(|v| v.parse::<u8>().unwrap_or(10).clamp(1, 20));
-            let limit = super::parse_optional_named_value(rest, "--limit")?
-                .map(|v| v.parse::<u32>().unwrap_or(500));
+            super::validate_named_args(
+                rest,
+                &[
+                    "--depth",
+                    "--limit",
+                    "--host",
+                    "--path",
+                    "--pattern",
+                    "--response-format",
+                ],
+                &[],
+            )?;
+            let depth =
+                super::parse_optional_number::<u8>(rest, "--depth")?.map(|v| v.clamp(1, 20));
+            let limit = super::parse_optional_number::<u32>(rest, "--limit")?;
             Ok(Command::ScoutFind(Box::new(ScoutFindArgs {
                 response_format: super::parse_optional_response_format(rest)?,
                 host: super::parse_required_named_value(rest, "--host")?,
@@ -53,8 +69,19 @@ pub(super) fn parse_scout(args: &[String]) -> Result<Command> {
             })))
         }
         [action, rest @ ..] if action == "ps" => {
-            let limit = super::parse_optional_named_value(rest, "--limit")?
-                .map(|v| v.parse::<u32>().unwrap_or(50));
+            super::validate_named_args(
+                rest,
+                &[
+                    "--limit",
+                    "--host",
+                    "--sort",
+                    "--grep",
+                    "--user",
+                    "--response-format",
+                ],
+                &[],
+            )?;
+            let limit = super::parse_optional_number::<u32>(rest, "--limit")?;
             Ok(Command::ScoutPs(Box::new(ScoutPsArgs {
                 response_format: super::parse_optional_response_format(rest)?,
                 host: super::parse_required_named_value(rest, "--host")?,
@@ -64,12 +91,27 @@ pub(super) fn parse_scout(args: &[String]) -> Result<Command> {
                 limit,
             })))
         }
-        [action, rest @ ..] if action == "df" => Ok(Command::ScoutDf {
-            response_format: super::parse_optional_response_format(rest)?,
-            host: super::parse_required_named_value(rest, "--host")?,
-            path: super::parse_optional_named_value(rest, "--path")?,
-        }),
+        [action, rest @ ..] if action == "df" => {
+            super::validate_named_args(rest, &["--host", "--path", "--response-format"], &[])?;
+            Ok(Command::ScoutDf {
+                response_format: super::parse_optional_response_format(rest)?,
+                host: super::parse_required_named_value(rest, "--host")?,
+                path: super::parse_optional_named_value(rest, "--path")?,
+            })
+        }
         [action, rest @ ..] if action == "delta" => {
+            super::validate_named_args(
+                rest,
+                &[
+                    "--source-host",
+                    "--source-path",
+                    "--target-host",
+                    "--target-path",
+                    "--content",
+                    "--response-format",
+                ],
+                &[],
+            )?;
             Ok(Command::ScoutDelta(Box::new(ScoutDeltaArgs {
                 response_format: super::parse_optional_response_format(rest)?,
                 source_host: super::parse_required_named_value(rest, "--source-host")?,
@@ -80,21 +122,37 @@ pub(super) fn parse_scout(args: &[String]) -> Result<Command> {
             })))
         }
         [action, rest @ ..] if action == "exec" => {
-            let timeout_secs = super::parse_optional_named_value(rest, "--timeout")?
-                .map(|v| v.parse::<u64>().unwrap_or(30));
-            // Collect remaining non-flag args as positional args (simplified).
+            let (option_args, command_args) = parse_variadic_args(rest)?;
+            super::validate_named_args(
+                &option_args,
+                &[
+                    "--timeout",
+                    "--host",
+                    "--path",
+                    "--command",
+                    "--response-format",
+                ],
+                &[],
+            )?;
+            let timeout_secs = super::parse_optional_number::<u64>(&option_args, "--timeout")?;
             Ok(Command::ScoutExec(Box::new(ScoutExecArgs {
-                response_format: super::parse_optional_response_format(rest)?,
-                host: super::parse_required_named_value(rest, "--host")?,
-                path: super::parse_optional_named_value(rest, "--path")?,
-                command: super::parse_required_named_value(rest, "--command")?,
-                args: Vec::new(), // CLI doesn't support extra args for simplicity
+                response_format: super::parse_optional_response_format(&option_args)?,
+                host: super::parse_required_named_value(&option_args, "--host")?,
+                path: super::parse_optional_named_value(&option_args, "--path")?,
+                command: super::parse_required_named_value(&option_args, "--command")?,
+                args: command_args,
                 timeout_secs,
             })))
         }
         [action, rest @ ..] if action == "emit" => {
+            let (option_args, command_args) = parse_variadic_args(rest)?;
+            super::validate_named_args(
+                &option_args,
+                &["--target", "--command", "--timeout", "--response-format"],
+                &[],
+            )?;
             // --target HOST:PATH[,HOST:PATH,...] (comma-separated)
-            let raw_targets = super::parse_required_named_value(rest, "--target")?;
+            let raw_targets = super::parse_required_named_value(&option_args, "--target")?;
             let targets: Vec<ScoutEmitTarget> = raw_targets
                 .split(',')
                 .map(|s| {
@@ -112,17 +170,27 @@ pub(super) fn parse_scout(args: &[String]) -> Result<Command> {
                     }
                 })
                 .collect();
-            let timeout_secs = super::parse_optional_named_value(rest, "--timeout")?
-                .map(|v| v.parse::<u64>().unwrap_or(30));
+            let timeout_secs = super::parse_optional_number::<u64>(&option_args, "--timeout")?;
             Ok(Command::ScoutEmit(Box::new(ScoutEmitArgs {
-                response_format: super::parse_optional_response_format(rest)?,
+                response_format: super::parse_optional_response_format(&option_args)?,
                 targets,
-                command: super::parse_required_named_value(rest, "--command")?,
-                args: Vec::new(),
+                command: super::parse_required_named_value(&option_args, "--command")?,
+                args: command_args,
                 timeout_secs,
             })))
         }
         [action, rest @ ..] if action == "beam" => {
+            super::validate_named_args(
+                rest,
+                &[
+                    "--source-host",
+                    "--source-path",
+                    "--dest-host",
+                    "--dest-path",
+                    "--response-format",
+                ],
+                &[],
+            )?;
             Ok(Command::ScoutBeam(Box::new(ScoutBeamArgs {
                 response_format: super::parse_optional_response_format(rest)?,
                 source_host: super::parse_required_named_value(rest, "--source-host")?,
@@ -137,7 +205,40 @@ pub(super) fn parse_scout(args: &[String]) -> Result<Command> {
     }
 }
 
+/// Remove a single variadic `--args` segment while preserving its argv values.
+fn parse_variadic_args(args: &[String]) -> Result<(Vec<String>, Vec<String>)> {
+    let Some(start) = args.iter().position(|arg| arg == "--args") else {
+        return Ok((args.to_vec(), Vec::new()));
+    };
+    if args.iter().skip(start + 1).any(|arg| arg == "--args") {
+        bail!("duplicate --args");
+    }
+    let end = args[start + 1..]
+        .iter()
+        .position(|arg| arg.starts_with("--"))
+        .map(|offset| start + 1 + offset)
+        .unwrap_or(args.len());
+    if end == start + 1 {
+        bail!("--args requires at least one value");
+    }
+    let mut remaining = args[..start].to_vec();
+    remaining.extend_from_slice(&args[end..]);
+    Ok((remaining, args[start + 1..end].to_vec()))
+}
+
 fn parse_scout_zfs(subaction: &str, rest: &[String]) -> Result<Command> {
+    super::validate_named_args(
+        rest,
+        &[
+            "--host",
+            "--pool",
+            "--type",
+            "--dataset",
+            "--limit",
+            "--response-format",
+        ],
+        &["--recursive"],
+    )?;
     let recursive = rest.iter().any(|a| a == "--recursive");
     let value_args: Vec<String> = rest
         .iter()
@@ -163,8 +264,7 @@ fn parse_scout_zfs(subaction: &str, rest: &[String]) -> Result<Command> {
             ..Default::default()
         }))),
         "snapshots" => {
-            let limit = super::parse_optional_named_value(rest, "--limit")?
-                .map(|v| v.parse::<u32>().unwrap_or(0));
+            let limit = super::parse_optional_number::<u32>(rest, "--limit")?;
             Ok(Command::ScoutZfs(Box::new(ScoutZfsArgs {
                 response_format: super::parse_optional_response_format(&value_args)?,
                 host,
@@ -182,9 +282,22 @@ fn parse_scout_zfs(subaction: &str, rest: &[String]) -> Result<Command> {
 }
 
 fn parse_scout_logs(subaction: &str, rest: &[String]) -> Result<Command> {
+    super::validate_named_args(
+        rest,
+        &[
+            "--host",
+            "--lines",
+            "--grep",
+            "--unit",
+            "--priority",
+            "--since",
+            "--until",
+            "--response-format",
+        ],
+        &[],
+    )?;
     let host = super::parse_required_named_value(rest, "--host")?;
-    let lines = super::parse_optional_named_value(rest, "--lines")?
-        .map(|v| v.parse::<u32>().unwrap_or(DEFAULT_LINES))
+    let lines = super::parse_optional_number::<u32>(rest, "--lines")?
         .unwrap_or(DEFAULT_LINES)
         .clamp(1, MAX_LINES);
     let grep = super::parse_optional_named_value(rest, "--grep")?;
@@ -281,7 +394,14 @@ pub(super) async fn run_scout(
         Command::ScoutExec(a) => {
             service
                 .scout()
-                .exec(&a.host, a.path.as_deref(), &a.command, &a.args, confirmer)
+                .exec(
+                    &a.host,
+                    a.path.as_deref(),
+                    &a.command,
+                    &a.args,
+                    a.timeout_secs,
+                    confirmer,
+                )
                 .await?
         }
         Command::ScoutEmit(a) => {

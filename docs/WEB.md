@@ -131,8 +131,30 @@ const config = {
 The UI calls:
 - `/health`
 - `/status`
+- `/activity` for the shared, server-sequenced REST/MCP event stream
+- `/capabilities` for the current credential's scopes and destructive-action policy
 - `/v1/synapse2`
 - `/mcp` for MCP clients rather than browser UI calls
+
+## Browser authentication
+
+The tool runner accepts a bearer credential and stores it only in module memory,
+so it is cleared on reload and is never embedded in the static export or exposed
+through Web Storage. Same-origin OAuth cookies/redirect endpoints remain
+server-managed; the fetch client sends same-origin credentials. The UI queries
+`/capabilities` and gates every action from its declared `public`,
+`synapse:read`, or `synapse:write` scope. Invalid and expired credentials remain
+distinct from read-only and write-capable sessions.
+
+Static bearer credentials are read-only. Browser write actions require an
+OAuth access token with `synapse:write` or authorization performed by the
+authenticated gateway. Never place a bearer token in `NEXT_PUBLIC_*` variables.
+
+Requests use synchronous in-flight guards, generation ownership, and abort
+signals. Changing tools or leaving the page cancels the owned request, stale
+completions cannot replace current results, and rapid clicks cannot duplicate a
+destructive submission. Dashboard quick actions refresh `/activity` immediately;
+polling responses older than the latest accepted server sequence are ignored.
 
 ## Aurora design system
 

@@ -4,7 +4,7 @@
 //! the service while it is collecting subprocess, SSH, Docker, or log output.
 //! This module provides the earlier guardrails used by the service layer.
 
-use std::{future::Future, path::Path, time::Duration};
+use std::{future::Future, path::Path, process::Stdio, time::Duration};
 
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
@@ -58,18 +58,56 @@ pub async fn run_local_command(
     current_dir: Option<&Path>,
 ) -> Result<CommandOutput> {
     let mut command = tokio::process::Command::new(program);
-    command.args(args).kill_on_drop(true);
+    command
+        .args(args)
+        .kill_on_drop(true)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if let Some(dir) = current_dir {
         command.current_dir(dir);
     }
 
-    let output =
-        with_operation_deadline(&format!("local command `{program}`"), command.output()).await?;
+    let mut child = command.spawn()?;
+    let stdout = child.stdout.take().expect("stdout configured as piped");
+    let stderr = child.stderr.take().expect("stderr configured as piped");
+    let stdout_task = tokio::spawn(drain_bounded(stdout, SERVICE_TEXT_FIELD_BYTE_CAP));
+    let stderr_task = tokio::spawn(drain_bounded(stderr, SERVICE_TEXT_FIELD_BYTE_CAP));
+    let status =
+        with_operation_deadline(&format!("local command `{program}`"), child.wait()).await?;
+    let stdout = stdout_task.await??;
+    let stderr = stderr_task.await??;
     Ok(CommandOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        exit_code: output.status.code(),
+        stdout,
+        stderr,
+        exit_code: status.code(),
     })
+}
+
+pub(crate) async fn drain_bounded<R>(mut reader: R, cap: usize) -> Result<String>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let mut retained = Vec::with_capacity(cap.min(8192));
+    let mut buffer = [0_u8; 8192];
+    let mut truncated = false;
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        let remaining = cap.saturating_sub(retained.len());
+        let keep = remaining.min(read);
+        retained.extend_from_slice(&buffer[..keep]);
+        truncated |= keep < read;
+    }
+    if truncated {
+        const MARKER: &[u8] = b"\n[truncated]\n";
+        let marker_start = cap.saturating_sub(MARKER.len());
+        retained.truncate(marker_start);
+        retained.extend_from_slice(&MARKER[..MARKER.len().min(cap)]);
+    }
+    Ok(String::from_utf8_lossy(&retained).into_owned())
 }
 
 /// Cap large output fields in a service value before MCP/REST rendering.

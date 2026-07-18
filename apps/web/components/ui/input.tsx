@@ -9,7 +9,15 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   ref?: Ref<HTMLInputElement>;
 }
 
-function Input({ className, type = "text", startAdornment, endAdornment, style, ref, ...props }: InputProps) {
+function Input({
+  className,
+  type = "text",
+  startAdornment,
+  endAdornment,
+  style,
+  ref,
+  ...props
+}: InputProps) {
   const hasStart = Boolean(startAdornment);
   const hasEnd = Boolean(endAdornment);
 

@@ -68,6 +68,8 @@ pub struct MockDockerClient {
     pub logs_error: bool,
     /// Records every lifecycle action requested, for assertions.
     pub actions: std::sync::Mutex<Vec<(String, ContainerAction)>>,
+    /// Optional lifecycle verb that should fail after being recorded.
+    pub fail_action: Option<ContainerAction>,
     /// Optional canned pull progress frames replayed by [`ImageOps::pull_image`].
     pub pull_frames: Vec<CreateImageInfo>,
     /// Canned `rmi` response (image delete items).
@@ -164,6 +166,12 @@ impl ContainerOps for MockDockerClient {
             .lock()
             .expect("mock action log")
             .push((name.to_string(), action));
+        if self.fail_action == Some(action) {
+            return Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 500,
+                message: format!("scripted {action:?} failure"),
+            });
+        }
         Ok(())
     }
 

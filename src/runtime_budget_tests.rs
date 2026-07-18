@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::{
     SERVICE_PROGRESS_ITEM_CAP, SERVICE_TEXT_FIELD_BYTE_CAP, append_lossy_bounded,
-    cap_service_value, with_deadline,
+    cap_service_value, run_local_command, with_deadline,
 };
 
 #[tokio::test]
@@ -63,4 +63,32 @@ fn append_lossy_bounded_stops_at_cap() {
 
     assert!(truncated);
     assert_eq!(target, "abcde");
+}
+
+#[tokio::test]
+async fn local_command_collection_is_bounded_at_the_producer() {
+    let script = format!("print('x' * {})", SERVICE_TEXT_FIELD_BYTE_CAP * 8);
+    let output = run_local_command("python3", &["-c", &script], None)
+        .await
+        .unwrap();
+    assert!(output.stdout.len() <= SERVICE_TEXT_FIELD_BYTE_CAP);
+    assert!(output.stdout.ends_with("[truncated]\n"));
+}
+
+#[tokio::test]
+async fn async_stream_drain_discards_after_cap_without_stopping_the_producer() {
+    use tokio::io::AsyncWriteExt;
+    let (mut writer, reader) = tokio::io::duplex(1024);
+    let producer = tokio::spawn(async move {
+        writer
+            .write_all(&vec![b'x'; SERVICE_TEXT_FIELD_BYTE_CAP * 8])
+            .await
+            .unwrap();
+    });
+    let retained = super::drain_bounded(reader, SERVICE_TEXT_FIELD_BYTE_CAP)
+        .await
+        .unwrap();
+    producer.await.unwrap();
+    assert_eq!(retained.len(), SERVICE_TEXT_FIELD_BYTE_CAP);
+    assert!(retained.ends_with("[truncated]\n"));
 }

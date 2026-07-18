@@ -18,6 +18,7 @@
 //!   [`api`]         — REST API handlers (`POST /v1/synapse2`, health, status)
 
 pub mod actions;
+pub mod activity;
 pub mod api;
 pub mod app;
 pub mod cache;
@@ -25,7 +26,6 @@ pub mod cli;
 pub mod color_policy;
 pub mod compose;
 pub mod config;
-pub mod docker;
 pub mod docker_client;
 pub mod elicitation_gate;
 pub mod fanout;
@@ -38,6 +38,7 @@ pub mod runtime_budget;
 pub mod scaffold;
 pub mod scout;
 pub mod scout_service;
+pub(crate) mod secure_path;
 pub mod server;
 pub mod ssh;
 pub mod synapse;
@@ -74,6 +75,7 @@ pub mod testing {
             config: McpConfig::default(),
             auth_policy: AuthPolicy::LoopbackDev,
             service: stub_service(),
+            activity: Default::default(),
         }
     }
 
@@ -86,6 +88,7 @@ pub mod testing {
             },
             auth_policy: AuthPolicy::Mounted { auth_state: None },
             service: stub_service(),
+            activity: Default::default(),
         }
     }
 
@@ -104,6 +107,7 @@ pub mod testing {
                 auth_state: Some(Arc::new(auth_state)),
             },
             service: stub_service(),
+            activity: Default::default(),
         }
     }
 

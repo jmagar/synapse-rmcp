@@ -8,6 +8,8 @@
 //! | `synapse://schema/scout` | Full scout JSON tool schema | static |
 //! | `synapse://hosts` | Configured host list as JSON | live from host repo |
 //! | `synapse://compose/projects` | Compose project list | live from ComposeDiscovery cache |
+//! | `synapse://status` | Current server runtime status | live from AppState |
+//! | `synapse://activity` | Recent cross-transport action audit events | live from AppState |
 //! | `synapse://help/flux` | Flux full help text (markdown) | static |
 //! | `synapse://help/scout` | Scout full help text (markdown) | static |
 //!
@@ -27,6 +29,8 @@ pub const URI_SCHEMA_FLUX: &str = "synapse://schema/flux";
 pub const URI_SCHEMA_SCOUT: &str = "synapse://schema/scout";
 pub const URI_HOSTS: &str = "synapse://hosts";
 pub const URI_COMPOSE_PROJECTS: &str = "synapse://compose/projects";
+pub const URI_STATUS: &str = "synapse://status";
+pub const URI_ACTIVITY: &str = "synapse://activity";
 pub const URI_HELP_FLUX: &str = "synapse://help/flux";
 pub const URI_HELP_SCOUT: &str = "synapse://help/scout";
 
@@ -37,6 +41,8 @@ pub const ALL_URIS: &[&str] = &[
     URI_SCHEMA_SCOUT,
     URI_HOSTS,
     URI_COMPOSE_PROJECTS,
+    URI_STATUS,
+    URI_ACTIVITY,
     URI_HELP_FLUX,
     URI_HELP_SCOUT,
 ];
@@ -68,6 +74,18 @@ pub fn all_resources() -> Vec<Resource> {
             URI_COMPOSE_PROJECTS,
             "compose projects",
             "Current compose project list from the discovery cache",
+            "application/json",
+        ),
+        make_resource(
+            URI_STATUS,
+            "server status",
+            "Current Synapse server runtime status",
+            "application/json",
+        ),
+        make_resource(
+            URI_ACTIVITY,
+            "recent activity",
+            "Bounded recent REST and MCP action audit history",
             "application/json",
         ),
         make_resource(
@@ -103,6 +121,14 @@ pub async fn read_resource(uri: &str, state: &AppState) -> Result<ResourceConten
         URI_SCHEMA_FLUX | URI_SCHEMA_SCOUT => read_schema_resource(uri),
         URI_HOSTS => read_hosts_resource(state).await,
         URI_COMPOSE_PROJECTS => read_compose_projects_resource(state).await,
+        URI_STATUS => Ok(json_resource(
+            crate::api::status_payload(state),
+            URI_STATUS,
+        )?),
+        URI_ACTIVITY => Ok(json_resource(
+            serde_json::json!({"events": state.activity.snapshot()}),
+            URI_ACTIVITY,
+        )?),
         URI_HELP_FLUX => Ok(read_help_resource("flux", uri)),
         URI_HELP_SCOUT => Ok(read_help_resource("scout", uri)),
         other => bail!("unknown resource: {other}"),
@@ -110,9 +136,31 @@ pub async fn read_resource(uri: &str, state: &AppState) -> Result<ResourceConten
 }
 
 fn read_schema_resource(uri: &str) -> Result<ResourceContents> {
-    let schemas = tool_definitions();
-    let text = serde_json::to_string_pretty(schemas)?;
+    let name = if uri == URI_SCHEMA_FLUX {
+        "flux"
+    } else {
+        "scout"
+    };
+    let schema = tool_definitions()
+        .iter()
+        .find(|schema| schema["name"] == name)
+        .ok_or_else(|| anyhow::anyhow!("missing {name} tool schema"))?;
+    let text = serde_json::to_string_pretty(schema)?;
     Ok(ResourceContents::text(text, uri).with_mime_type("application/json"))
+}
+
+fn json_resource(value: Value, uri: &str) -> Result<ResourceContents> {
+    Ok(
+        ResourceContents::text(serde_json::to_string_pretty(&value)?, uri)
+            .with_mime_type("application/json"),
+    )
+}
+
+pub fn requires_read_scope(uri: &str) -> bool {
+    matches!(
+        uri,
+        URI_HOSTS | URI_COMPOSE_PROJECTS | URI_STATUS | URI_ACTIVITY
+    )
 }
 
 async fn read_hosts_resource(state: &AppState) -> Result<ResourceContents> {

@@ -22,6 +22,22 @@ pub(super) fn tool_result_from_text(text: String) -> Result<CallToolResult, Erro
     Ok(CallToolResult::success(vec![Content::text(text)]))
 }
 
+pub(super) fn tool_error_result(action: &str, error: &str) -> CallToolResult {
+    let payload = serde_json::json!({
+        "error": {
+            "kind": "execution_error",
+            "action": action,
+            "message": error,
+            "retryable": false,
+        }
+    });
+    let serialized = payload.to_string();
+    let text = token_limit::truncate_if_needed(&serialized);
+    let mut result = CallToolResult::error(vec![Content::text(text)]);
+    result.structured_content = Some(payload);
+    result
+}
+
 pub(super) fn render_mcp_tool_output(
     tool_name: &str,
     args: &Value,

@@ -330,14 +330,14 @@ Across the rmcp family, naming follows `repo=<service>-rmcp`, `npm=<service>-rmc
 | `stats` | `synapse:read` | Resource usage stats; optional `container_id` |
 | `top` | `synapse:read` | Show running processes; requires `container_id` |
 | `search` | `synapse:read` | Full-text search by name/image/labels; requires `query` |
-| `start` | `synapse:write` | Start a stopped container; requires `container_id` |
-| `stop` | `synapse:write` | Stop a running container (destructive); requires `container_id` |
-| `restart` | `synapse:write` | Restart a container; requires `container_id` |
-| `pause` | `synapse:write` | Pause a running container; requires `container_id` |
-| `resume` | `synapse:write` | Resume a paused container; requires `container_id` |
-| `pull` | `synapse:write` | Pull latest image for a container; requires `container_id` |
-| `recreate` | `synapse:write` | Recreate container with image pull (destructive); requires `container_id`; optional `pull` (default true) |
-| `exec` | `synapse:write` | Execute command inside container (destructive, execvp); requires `container_id`, `command` array |
+| `start` | `synapse:write` | Start a stopped container; requires `host`, `container_id` |
+| `stop` | `synapse:write` | Stop a running container (destructive); requires `host`, `container_id` |
+| `restart` | `synapse:write` | Restart a container; requires `host`, `container_id` |
+| `pause` | `synapse:write` | Pause a running container; requires `host`, `container_id` |
+| `resume` | `synapse:write` | Resume a paused container; requires `host`, `container_id` |
+| `pull` | `synapse:write` | Pull latest image for a container; requires `host`, `container_id` |
+| `recreate` | `synapse:write` | Recreate container with image pull (destructive); requires `host`, `container_id`; optional `pull` (default true) |
+| `exec` | `synapse:write` | Execute command inside container (destructive, execvp); requires `host`, `container_id`, `command` array |
 
 #### `flux host` — Host inspection (9 actions)
 
@@ -450,9 +450,9 @@ Key environment variables:
 | `SYNAPSE_MCP_PORT` | `40080` | Bind port for HTTP transport. |
 | `SYNAPSE_MCP_TOKEN` | unset | Static bearer token for auth. |
 | `SYNAPSE_MCP_NO_AUTH` | `false` | Disable auth for loopback development only. |
-| `SYNAPSE_NOAUTH` | `false` | Trusted-gateway no-auth mode for non-loopback deployments. |
+| `SYNAPSE_NOAUTH` | `false` | Delegate auth/authz to an isolated trusted upstream gateway. |
 | `SYNAPSE_MCP_ALLOW_DESTRUCTIVE` | `false` | Skip destructive-operation confirmation prompts (loopback only). |
-| `SYNAPSE_MCP_MAX_CONCURRENCY` | `50` | Maximum simultaneous in-flight requests on `/mcp` and `/v1/synapse2`. Excess requests are queued, not rejected. Set to `0` to disable. `/health` and `/status` are exempt. |
+| `SYNAPSE_MCP_MAX_CONCURRENCY` | `50` | Maximum simultaneous in-flight requests on `/mcp` and `/v1/synapse2`. Excess requests receive HTTP 429 with `Retry-After`. Set to `0` to disable. `/health`, `/ready`, and `/status` are exempt. |
 
 See `.env.example` for the full list of variables and `docs/CONFIG.md` for auth
 configuration details.

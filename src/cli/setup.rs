@@ -218,7 +218,7 @@ fn require_oauth_field(
 }
 
 fn check_auth(config: &Config, report: &mut SetupReport) {
-    if let Err(error) = resolve_auth_policy_kind(config, config.mcp.trusted_gateway) {
+    if let Err(error) = resolve_auth_policy_kind(config) {
         report.blocking_failures.push(SetupFailure {
             code: "invalid_auth_policy",
             message: error.to_string(),

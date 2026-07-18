@@ -554,7 +554,7 @@ async fn container_exec_confirmation_decline_blocks_before_host_resolution() {
 }
 
 #[tokio::test]
-async fn container_recreate_without_host_reports_not_found_before_confirmation() {
+async fn container_recreate_without_host_is_rejected_before_confirmation() {
     let flux = flux_with_hosts(Vec::new());
     let params = container_lifecycle::RecreateParams { pull: true };
 
@@ -563,7 +563,7 @@ async fn container_recreate_without_host_reports_not_found_before_confirmation()
         .await
         .unwrap_err();
 
-    assert!(err.to_string().contains("not found on any host"));
+    assert!(err.to_string().contains("host is required"));
 }
 
 #[tokio::test]
@@ -589,12 +589,12 @@ async fn container_find_host_ops_aggregate_empty_host_errors_consistently() {
         )
         .await
         .unwrap_err();
-    let pull = flux.container_pull(None, "abc").await.unwrap_err();
-
-    for err in [inspect, top, logs, pull] {
+    for err in [inspect, top, logs] {
         let text = err.to_string();
         assert!(text.contains("container abc not found on any host"));
     }
+    let pull = flux.container_pull(None, "abc").await.unwrap_err();
+    assert!(pull.to_string().contains("host is required"));
 }
 
 #[tokio::test]

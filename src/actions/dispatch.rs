@@ -101,7 +101,14 @@ async fn execute_service_action_inner(
         SynapseAction::ScoutExec(a) => {
             service
                 .scout()
-                .exec(&a.host, a.path.as_deref(), &a.command, &a.args, confirmer)
+                .exec(
+                    &a.host,
+                    a.path.as_deref(),
+                    &a.command,
+                    &a.args,
+                    a.timeout_secs,
+                    confirmer,
+                )
                 .await
         }
         SynapseAction::ScoutEmit(a) => {
