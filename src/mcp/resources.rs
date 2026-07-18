@@ -16,7 +16,7 @@
 //! Wire [`list_resources`] and [`read_resource`] from `rmcp_server.rs`.
 
 use anyhow::{Result, bail};
-use rmcp::model::{RawResource, Resource, ResourceContents};
+use rmcp::model::{Resource, ResourceContents};
 use serde_json::Value;
 
 use crate::server::AppState;
@@ -104,12 +104,9 @@ pub fn all_resources() -> Vec<Resource> {
 }
 
 fn make_resource(uri: &str, name: &str, description: &str, mime: &str) -> Resource {
-    Resource::new(
-        RawResource::new(uri, name.to_string())
-            .with_description(description.to_string())
-            .with_mime_type(mime),
-        None,
-    )
+    Resource::new(uri, name)
+        .with_description(description)
+        .with_mime_type(mime)
 }
 
 // ── Resource content handlers ─────────────────────────────────────────────────

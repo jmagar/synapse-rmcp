@@ -2,7 +2,7 @@
 
 use rmcp::{
     ErrorData,
-    model::{CallToolResult, Content},
+    model::{CallToolResult, ContentBlock},
 };
 use serde_json::Value;
 
@@ -14,12 +14,12 @@ pub(super) fn tool_result_from_json(value: Value) -> Result<CallToolResult, Erro
     let text = serde_json::to_string(&value)
         .map_err(|e| ErrorData::internal_error(format!("serialization error: {e}"), None))?;
     let text = token_limit::truncate_if_needed(&text);
-    Ok(CallToolResult::success(vec![Content::text(text)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
 }
 
 pub(super) fn tool_result_from_text(text: String) -> Result<CallToolResult, ErrorData> {
     let text = token_limit::truncate_if_needed(&text);
-    Ok(CallToolResult::success(vec![Content::text(text)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
 }
 
 pub(super) fn tool_error_result(action: &str, error: &str) -> CallToolResult {
@@ -33,7 +33,7 @@ pub(super) fn tool_error_result(action: &str, error: &str) -> CallToolResult {
     });
     let serialized = payload.to_string();
     let text = token_limit::truncate_if_needed(&serialized);
-    let mut result = CallToolResult::error(vec![Content::text(text)]);
+    let mut result = CallToolResult::error(vec![ContentBlock::text(text)]);
     result.structured_content = Some(payload);
     result
 }

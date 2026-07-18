@@ -219,7 +219,6 @@ fn operational_errors_are_caller_visible_tool_results() {
     );
     assert!(
         result.content[0]
-            .raw
             .as_text()
             .unwrap()
             .text
@@ -303,7 +302,6 @@ fn tool_result_from_json_applies_response_cap() {
     }))
     .expect("tool result should serialize");
     let text = result.content[0]
-        .raw
         .as_text()
         .expect("tool result should contain text")
         .text

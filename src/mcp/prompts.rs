@@ -4,8 +4,7 @@
 //! They appear in the "Prompts" section of compatible MCP UIs.
 
 use rmcp::model::{
-    GetPromptRequestParams, GetPromptResult, ListPromptsResult, Prompt, PromptMessage,
-    PromptMessageRole,
+    GetPromptRequestParams, GetPromptResult, ListPromptsResult, Prompt, PromptMessage, Role,
 };
 
 pub(super) fn list_prompts() -> ListPromptsResult {
@@ -25,7 +24,7 @@ pub(super) fn list_prompts() -> ListPromptsResult {
 pub(super) fn get_prompt(request: GetPromptRequestParams) -> anyhow::Result<GetPromptResult> {
     match request.name.as_str() {
         "quick_start" => Ok(GetPromptResult::new(vec![PromptMessage::new_text(
-            PromptMessageRole::User,
+            Role::User,
             "Use the scout tool with {\"action\":\"nodes\"} to list the configured hosts. \
              Choose one returned host, then use the flux tool with \
              {\"action\":\"host\",\"subaction\":\"status\",\"host\":\"<returned-host>\"} \
