@@ -34,7 +34,7 @@
     "serve": "^14.2.5",
     "tailwindcss": "^4.3.2",
     "tw-animate-css": "^1.3.4",
-    "typescript": "^6",
+    "typescript": "^7",
     "vitest": "^4.1.10"
   },
   "pnpm": {
