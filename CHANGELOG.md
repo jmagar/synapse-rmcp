@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
                Format: ## [X.Y.Z] — YYYY-MM-DD
                Use Added / Changed / Deprecated / Removed / Fixed / Security headers. -->
 
+## [0.6.0](https://github.com/jmagar/synapse-rmcp/compare/v0.5.4...v0.6.0) (2026-07-18)
+
+
+### Added
+
+* align synapse npm launcher naming ([e97ad1e](https://github.com/jmagar/synapse-rmcp/commit/e97ad1e03c1a90d91e18946b35719ed98153a2cf))
+
+
+### Fixed
+
+* address all Lavra review findings ([18c07d4](https://github.com/jmagar/synapse-rmcp/commit/18c07d4c34c2d3cff0231753451f10ca8075bced))
+* **ci:** switch OpenWiki to local openai-compatible proxy ([1481232](https://github.com/jmagar/synapse-rmcp/commit/1481232641b0f8fe7b996e05be8a9bf5aea8df74))
+* complete comprehensive repository review ([4788655](https://github.com/jmagar/synapse-rmcp/commit/4788655be39ea1dec7d327e21a8c441826460126))
+* remediate comprehensive repository review ([07cd643](https://github.com/jmagar/synapse-rmcp/commit/07cd6436ce45c6174e977fd3a503d9d30cc89959))
+* route rust builds through sccache wrapper ([ce8dafc](https://github.com/jmagar/synapse-rmcp/commit/ce8dafc1ca3eeda8c165104c4388cc7ca413dc90))
+* update trivy action pin ([066a2b3](https://github.com/jmagar/synapse-rmcp/commit/066a2b355c2f8022880d4541108536cc4f13f514))
+
 ## [0.5.3](https://github.com/jmagar/synapse-rmcp/compare/v0.5.2...v0.5.3) (2026-07-11)
 
 

@@ -16,7 +16,7 @@ resolver = "2"
 
 [package]
 name = "synapse2"
-version = "0.5.4"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.90"
 categories = ["command-line-utilities", "development-tools"]
