@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Synapse2 REST API",
-    "version": "0.5.4",
+    "version": "0.6.0",
     "description": "Generated OpenAPI schema for Synapse2's REST surface. Loopback deployments have no HTTP auth; non-loopback deployments require SYNAPSE_MCP_TOKEN or OAuth bearer JWTs. REST actions require their action-specific scopes when auth is mounted."
   },
   "servers": [
