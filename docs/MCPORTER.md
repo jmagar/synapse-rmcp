@@ -37,7 +37,7 @@ just test-mcporter
 ```json
 {
   "mcpServers": {
-    "synapse2": {
+    "synapse": {
       "url": "http://localhost:40080/mcp",
       "transport": "http"
     }

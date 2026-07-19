@@ -44,7 +44,7 @@ Claude Code and Codex read their MCP connection config from the shared `mcp.json
 ```json
 {
   "mcpServers": {
-    "synapse2": {
+    "synapse": {
       "type": "http",
       "url": "${user_config.server_url}/mcp",
       "headers": { "Authorization": "Bearer ${user_config.api_token}" }

@@ -207,7 +207,7 @@ pub fn router(state: AppState) -> Router {
 
 ```rust
 // cli.rs — binary module
-use synapse2::app::SynapseService;
+use synapse::app::SynapseService;
 
 pub enum CliCommand {
     Things,

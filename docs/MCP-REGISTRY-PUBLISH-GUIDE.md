@@ -27,7 +27,7 @@ using the `server.json` manifest at the repo root.
 |---|---|
 | `name` | `tv.tootie/synapse2` |
 | `repository.url` | `https://github.com/jmagar/synapse-rmcp` |
-| `packages[0].identifier` | `ghcr.io/jmagar/synapse2:<version>` |
+| `packages[0].identifier` | `ghcr.io/jmagar/synapse:<version>` |
 | Hosted remote | Not declared; add `remotes` only when a public hosted `/mcp` endpoint exists |
 
 ## Prerequisites
@@ -104,7 +104,7 @@ tag before calling the publisher:
   run: |
     VERSION="${GITHUB_REF_NAME#v}"
     jq --arg v "$VERSION" \
-       --arg img "ghcr.io/jmagar/synapse2:${VERSION}" \
+       --arg img "ghcr.io/jmagar/synapse:${VERSION}" \
        '.version = $v | .packages[0].identifier = $img | .packages[0].version = $v' \
        server.json > server.tmp && mv server.tmp server.json
 

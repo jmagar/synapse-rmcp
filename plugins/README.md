@@ -61,7 +61,7 @@ Shared MCP server connection config used by both plugins. Points both clients at
 ```json
 {
   "mcpServers": {
-    "synapse2": {
+    "synapse": {
       "type": "http",
       "url": "${user_config.server_url}/mcp",
       "headers": {

@@ -164,7 +164,7 @@ Claude Code and Codex share `plugins/synapse2/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "synapse2": {
+    "synapse": {
       "type": "http",
       "url": "${user_config.server_url}/mcp",
       "headers": {

@@ -122,7 +122,7 @@ Non-loopback HTTP deployments must use bearer auth or OAuth. The server refuses 
 ```json
 {
   "mcpServers": {
-    "synapse2": {
+    "synapse": {
       "type": "stdio",
       "command": "synapse",
       "args": ["mcp"]

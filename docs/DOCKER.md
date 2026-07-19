@@ -55,14 +55,14 @@ CMD ["serve", "mcp"]
 
 ## Compose service
 
-The local compose file extends the production service and builds `synapse2:dev`.
+The local compose file extends the production service and builds `synapse:dev`.
 The production service uses:
 
 ```yaml
 services:
-  synapse2:
-    image: synapse2:${SYNAPSE2_VERSION:-latest}
-    container_name: synapse2
+  synapse:
+    image: synapse:${SYNAPSE2_VERSION:-latest}
+    container_name: synapse
     env_file:
       - path: .env
         required: false
@@ -73,7 +73,7 @@ services:
     ports:
       - "${SYNAPSE_MCP_BIND_HOST:-127.0.0.1}:${SYNAPSE_MCP_HOST_PORT:-40080}:40080/tcp"
     volumes:
-      - ${HOME}/.synapse2:/data
+      - ${HOME}/.synapse:/data
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.ssh:/home/synapse/.ssh:ro
     group_add:

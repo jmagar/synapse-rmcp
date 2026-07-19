@@ -97,7 +97,7 @@ Then configure an MCP client with stdio:
 ```json
 {
   "mcpServers": {
-    "synapse2": {
+    "synapse": {
       "command": "npx",
       "args": ["-y", "synapse-rmcp", "mcp"]
     }
@@ -128,7 +128,7 @@ stdio is preferred for local MCP clients:
 ```json
 {
   "mcpServers": {
-    "synapse2": {
+    "synapse": {
       "command": "synapse",
       "args": ["mcp"]
     }
@@ -141,7 +141,7 @@ Streamable HTTP uses `/mcp` on the configured host and port:
 ```json
 {
   "mcpServers": {
-    "synapse2": {
+    "synapse": {
       "url": "http://127.0.0.1:40080/mcp",
       "headers": {
         "Authorization": "Bearer ${SYNAPSE_MCP_TOKEN}"
@@ -226,7 +226,7 @@ Distribution/version invariants:
 
 - The npm package downloads the matching GitHub Release binary.
 - The installed binary remains `synapse`.
-- `server.json` must point at `ghcr.io/jmagar/synapse2:<version>`.
+- `server.json` must point at `ghcr.io/jmagar/synapse:<version>`.
 - Plugin manifests stay versionless where marketplaces derive identity from git
   state.
 - Generated docs and schemas must come from source-controlled generation
@@ -281,7 +281,7 @@ MCP clients can use the same launcher:
 ```json
 {
   "mcpServers": {
-    "synapse2": {
+    "synapse": {
       "command": "npx",
       "args": ["-y", "synapse-rmcp"]
     }
