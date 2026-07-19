@@ -31,7 +31,7 @@ None.
 11. Bound `find`/tree traversal at the producer and terminate once result/byte limits are reached.
 12. Correct repair automation so it cannot stop/install `example-mcp`; validate and test Synapse targets.
 13. Scan the exact container digest before publication, preserve SARIF on failure, and publish only verified artifacts.
-14. Make production Compose consume `ghcr.io/jmagar/synapse2` (preferably by digest) and contract-test the resolved image.
+14. Make production Compose consume `ghcr.io/jmagar/synapse` (preferably by digest) and contract-test the resolved image.
 15. Add all missing high-value regression suites for the above trust/resource/installer/browser boundaries; tests must fail on the baseline defects and pass after remediation.
 
 ### Medium Priority (P2 — Address in This Remediation)

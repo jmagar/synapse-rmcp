@@ -1,6 +1,6 @@
 ---
 date: 2026-07-18 21:19:10 EST
-repo: git@github.com:jmagar/synapse-rmcp.git
+repo: git@github.com:jmagar/synapse.git
 branch: main
 head: 4a1e283ab16dd8438a799294bc6aec014fa99cb8
 working directory: /home/jmagar/workspace/synapse
@@ -315,21 +315,21 @@ The session used Beads as the issue source of truth. The comprehensive-review ro
 
 ## References
 
-- [PR #68: complete comprehensive repository review](https://github.com/jmagar/synapse-rmcp/pull/68)
-- [PR #37: rmcp 2.2](https://github.com/jmagar/synapse-rmcp/pull/37)
-- [PR #52: GitHub Actions group](https://github.com/jmagar/synapse-rmcp/pull/52)
-- [PR #55: v0.6.0](https://github.com/jmagar/synapse-rmcp/pull/55)
-- [PR #59: release-please action](https://github.com/jmagar/synapse-rmcp/pull/59)
-- [PR #60: create-pull-request action](https://github.com/jmagar/synapse-rmcp/pull/60)
-- [PR #63: Node types](https://github.com/jmagar/synapse-rmcp/pull/63)
-- [PR #66: TypeScript 7](https://github.com/jmagar/synapse-rmcp/pull/66)
-- [PR #67: OpenWiki](https://github.com/jmagar/synapse-rmcp/pull/67)
-- [PR #69: Radix Tabs](https://github.com/jmagar/synapse-rmcp/pull/69)
-- [PR #70: rmcp 2.2 mcporter responses](https://github.com/jmagar/synapse-rmcp/pull/70)
-- [PR #71: v0.6.1](https://github.com/jmagar/synapse-rmcp/pull/71)
-- [Release v0.6.1](https://github.com/jmagar/synapse-rmcp/releases/tag/v0.6.1)
-- [Dependabot alert #3: cmov](https://github.com/jmagar/synapse-rmcp/security/dependabot/3)
-- [Dependabot alert #4: postcss](https://github.com/jmagar/synapse-rmcp/security/dependabot/4)
+- [PR #68: complete comprehensive repository review](https://github.com/jmagar/synapse/pull/68)
+- [PR #37: rmcp 2.2](https://github.com/jmagar/synapse/pull/37)
+- [PR #52: GitHub Actions group](https://github.com/jmagar/synapse/pull/52)
+- [PR #55: v0.6.0](https://github.com/jmagar/synapse/pull/55)
+- [PR #59: release-please action](https://github.com/jmagar/synapse/pull/59)
+- [PR #60: create-pull-request action](https://github.com/jmagar/synapse/pull/60)
+- [PR #63: Node types](https://github.com/jmagar/synapse/pull/63)
+- [PR #66: TypeScript 7](https://github.com/jmagar/synapse/pull/66)
+- [PR #67: OpenWiki](https://github.com/jmagar/synapse/pull/67)
+- [PR #69: Radix Tabs](https://github.com/jmagar/synapse/pull/69)
+- [PR #70: rmcp 2.2 mcporter responses](https://github.com/jmagar/synapse/pull/70)
+- [PR #71: v0.6.1](https://github.com/jmagar/synapse/pull/71)
+- [Release v0.6.1](https://github.com/jmagar/synapse/releases/tag/v0.6.1)
+- [Dependabot alert #3: cmov](https://github.com/jmagar/synapse/security/dependabot/3)
+- [Dependabot alert #4: postcss](https://github.com/jmagar/synapse/security/dependabot/4)
 
 ## Open Questions
 

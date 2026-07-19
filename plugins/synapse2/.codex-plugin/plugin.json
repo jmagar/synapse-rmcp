@@ -1,8 +1,8 @@
 {
   "name": "synapse2",
   "description": "MCP server for Docker and SSH host management — exposes flux (Docker/container/compose/host) and scout (SSH exec/filesystem/ZFS/logs) tools across configured infrastructure hosts.",
-  "homepage": "https://github.com/jmagar/synapse-rmcp",
-  "repository": "https://github.com/jmagar/synapse-rmcp",
+  "homepage": "https://github.com/jmagar/synapse",
+  "repository": "https://github.com/jmagar/synapse",
   "license": "MIT",
   "keywords": [
     "synapse2",
@@ -23,7 +23,7 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/jmagar/synapse-rmcp",
+    "websiteURL": "https://github.com/jmagar/synapse",
     "defaultPrompt": [
       "List the running Docker containers on my host and show recent logs for one of them.",
       "Check disk usage and ZFS pool health on my server over SSH.",

@@ -3,14 +3,14 @@
   "version": "0.6.1",
   "description": "Node launcher for the Synapse Rust MCP server and CLI for Docker, host, SSH, log, ZFS, and file workflows.",
   "license": "MIT",
-  "homepage": "https://github.com/jmagar/synapse-rmcp#readme",
+  "homepage": "https://github.com/jmagar/synapse#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jmagar/synapse-rmcp.git",
+    "url": "git+https://github.com/jmagar/synapse.git",
     "directory": "packages/synapse-rmcp"
   },
   "bugs": {
-    "url": "https://github.com/jmagar/synapse-rmcp/issues"
+    "url": "https://github.com/jmagar/synapse/issues"
   },
   "bin": {
     "synapse": "bin/synapse.js"

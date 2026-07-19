@@ -6,7 +6,7 @@
 #           service's actual binary name, URL, and version.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/jmagar/synapse-rmcp/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/jmagar/synapse/main/install.sh | bash
 #   # or locally:
 #   bash install.sh
 #
@@ -24,7 +24,7 @@ set -euo pipefail
 # ── CONFIGURATION — edit these values for your service ───────────────────────
 
 # GitHub org/repo.
-REPO="jmagar/synapse-rmcp"
+REPO="jmagar/synapse"
 
 # Binary name (matches Cargo.toml [[bin]] name).
 BINARY_NAME="synapse"

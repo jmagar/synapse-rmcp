@@ -30,7 +30,7 @@ None.
 
 1. **Repair automation targets `example-mcp` and can stop the wrong workload** (`scripts/repair.sh`, `Justfile`). Use canonical Synapse identifiers, validate the resolved target, and add hermetic tests.
 2. **Container scanning occurs after publication, scans the wrong tag for releases, and loses failed SARIF** (`.github/workflows/docker-publish.yml`). Scan the exact pre-push digest, upload SARIF under `if: always()`, and publish/promote only after success.
-3. **Production Compose does not reference the published image** (`docker-compose.prod.yml`, workflow/server metadata). Use `ghcr.io/jmagar/synapse2`, prefer digests, and add a contract test.
+3. **Production Compose does not reference the published image** (`docker-compose.prod.yml`, workflow/server metadata). Use `ghcr.io/jmagar/synapse`, prefer digests, and add a contract test.
 
 ### Medium
 

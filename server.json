@@ -4,9 +4,9 @@
   "title": "Synapse RMCP",
   "description": "Rust MCP and CLI server for Docker, host inspection, SSH, logs, ZFS, and safe file operations.",
   "version": "0.5.4",
-  "websiteUrl": "https://github.com/jmagar/synapse-rmcp",
+  "websiteUrl": "https://github.com/jmagar/synapse",
   "repository": {
-    "url": "https://github.com/jmagar/synapse-rmcp",
+    "url": "https://github.com/jmagar/synapse",
     "source": "github",
     "id": "1247261737"
   },
@@ -75,8 +75,8 @@
           "format": "string",
           "isRequired": false,
           "isSecret": false,
-          "default": "jmagar/synapse-rmcp",
-          "placeholder": "jmagar/synapse-rmcp"
+          "default": "jmagar/synapse",
+          "placeholder": "jmagar/synapse"
         },
         {
           "name": "SYNAPSE_RMCP_RELEASE_BASE_URL",
@@ -110,7 +110,7 @@
       },
       "buildInfo": {
         "version": "0.5.4",
-        "repository": "https://github.com/jmagar/synapse-rmcp"
+        "repository": "https://github.com/jmagar/synapse"
       }
     }
   }

@@ -27,7 +27,7 @@ function releaseVersion(env = process.env) {
 }
 
 function releaseBaseUrl(env = process.env) {
-  const repo = env.SYNAPSE_RMCP_REPO || "jmagar/synapse-rmcp";
+  const repo = env.SYNAPSE_RMCP_REPO || "jmagar/synapse";
   return env.SYNAPSE_RMCP_RELEASE_BASE_URL || `https://github.com/${repo}/releases/download`;
 }
 

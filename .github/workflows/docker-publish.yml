@@ -5,7 +5,7 @@
 #   - push to main → builds and pushes :latest tag
 #   - push of v* tag → builds and pushes :<version> tag + GitHub Release assets
 #
-# Registry: ghcr.io/jmagar/synapse2
+# Registry: ghcr.io/jmagar/synapse
 # =============================================================================
 
 name: Docker Publish
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_NAME: ghcr.io/jmagar/synapse2
+  IMAGE_NAME: ghcr.io/jmagar/synapse
 
 jobs:
   docker:

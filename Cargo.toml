@@ -21,8 +21,8 @@ edition = "2024"
 rust-version = "1.90"
 categories = ["command-line-utilities", "development-tools"]
 keywords = ["mcp", "docker", "ssh", "zfs", "homelab"]
-repository = "https://github.com/jmagar/synapse-rmcp"
-homepage = "https://github.com/jmagar/synapse-rmcp#readme"
+repository = "https://github.com/jmagar/synapse"
+homepage = "https://github.com/jmagar/synapse#readme"
 description = "Rust MCP and CLI server for local Synapse workflows: Docker/Compose control, host inspection, SSH, logs, ZFS, and files."
 autobins = false
 

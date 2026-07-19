@@ -54,8 +54,8 @@ run_packaging_identity_check() {
     printf 'release workflow must package the synapse binary\n' >&2
     failed=1
   }
-  grep -q 'IMAGE_NAME: ghcr.io/jmagar/synapse2' .github/workflows/docker-publish.yml || {
-    printf 'Docker workflow must publish ghcr.io/jmagar/synapse2\n' >&2
+  grep -q 'IMAGE_NAME: ghcr.io/jmagar/synapse' .github/workflows/docker-publish.yml || {
+    printf 'Docker workflow must publish ghcr.io/jmagar/synapse\n' >&2
     failed=1
   }
   grep -Fq 'image-ref: ${{ fromJSON(steps.meta.outputs.json).tags[0] }}' .github/workflows/docker-publish.yml || {

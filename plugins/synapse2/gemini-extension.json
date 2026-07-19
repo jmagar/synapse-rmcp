@@ -2,7 +2,7 @@
   "name": "synapse2",
   "description": "MCP server for Docker and SSH host management — exposes flux (Docker/container/compose/host) and scout (SSH exec/filesystem/ZFS/logs) tools across configured infrastructure hosts.",
   "author": "Jacob Magar",
-  "repository": "https://github.com/jmagar/synapse-rmcp",
+  "repository": "https://github.com/jmagar/synapse",
   "license": "MIT",
   "keywords": ["synapse2", "docker", "ssh", "infrastructure", "homelab", "mcp"],
   "contextFileName": "GEMINI.md",
