@@ -9,7 +9,7 @@
 # SYNAPSE_MCP_TOKEN unset.
 # =============================================================================
 
-name: synapse2
+name: synapse
 
 x-common-service: &common-service
   networks:
@@ -29,10 +29,10 @@ x-common-service: &common-service
       compress: "true"
 
 services:
-  synapse2:
+  synapse:
     <<: *common-service
-    image: ghcr.io/jmagar/synapse2:${SYNAPSE2_VERSION:-latest}
-    container_name: synapse2
+    image: ghcr.io/jmagar/synapse:latest
+    container_name: synapse
     env_file:
       - path: .env
         required: false
@@ -58,7 +58,7 @@ services:
     volumes:
       # Persistent appdata — config.toml, .env, auth.db, JWT key. The binary reads
       # config.toml / .env from here (it maps to /data inside the container).
-      - ${HOME}/.synapse2:/data
+      - ${HOME}/.synapse:/data
       # Docker control plane for the `flux` tools.
       # SECURITY: bind-mounting the daemon socket grants this container
       # root-equivalent control of the host's Docker. Only enable on hosts you
@@ -69,8 +69,8 @@ services:
       # ~/.ssh/config (see src/host_config.rs); HOME=/home/synapse in the image,
       # so the config must land at /home/synapse/.ssh. Mounted read-only.
       - ${HOME}/.ssh:/home/synapse/.ssh:ro
-    cap_drop:
-      - ALL
+    # cap_drop:
+      # - ALL
     security_opt:
       - no-new-privileges:true
     # The root entrypoint repairs bind-mount permissions, then drops to these
@@ -92,11 +92,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256M
+          memory: 2G
           cpus: '0.5'
 
 volumes:
-  synapse2-data:
+  synapse-data:
 
 networks:
   mcp:

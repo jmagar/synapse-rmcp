@@ -10,14 +10,14 @@
 #   docker compose down            # stop and remove containers
 # =============================================================================
 
-name: synapse2
+name: synapse
 
 services:
-  synapse2:
+  synapse:
     extends:
       file: docker-compose.prod.yml
-      service: synapse2
-    image: synapse2:dev
+      service: synapse
+    image: synapse:dev
     pull_policy: build
     build:
       context: .
